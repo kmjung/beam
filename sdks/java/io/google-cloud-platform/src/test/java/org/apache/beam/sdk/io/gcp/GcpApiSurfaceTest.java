@@ -57,11 +57,9 @@ public class GcpApiSurfaceTest {
             classesInPackage("com.google.api.client.http"),
             classesInPackage("com.google.api.client.json"),
             classesInPackage("com.google.api.client.util"),
-            classesInPackage("com.google.api.gax"),
             classesInPackage("com.google.api.services.bigquery.model"),
             classesInPackage("com.google.auth"),
             classesInPackage("com.google.bigtable.v2"),
-            classesInPackage("com.google.cloud.bigquery.v3"),
             classesInPackage("com.google.cloud.bigtable.config"),
             classesInPackage("com.google.spanner.v1"),
             Matchers.<Class<?>>equalTo(com.google.api.gax.grpc.ApiException.class),
@@ -92,8 +90,7 @@ public class GcpApiSurfaceTest {
             classesInPackage("org.apache.beam"),
             classesInPackage("org.apache.commons.logging"),
             classesInPackage("org.codehaus.jackson"),
-            classesInPackage("org.joda.time"),
-            classesInPackage("org.threeten.bp"));
+            classesInPackage("org.joda.time"));
 
     assertThat(apiSurface, containsOnlyClassesMatching(allowedClasses));
   }
