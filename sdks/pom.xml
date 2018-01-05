@@ -33,9 +33,7 @@
   <name>Apache Beam :: SDKs</name>
 
   <modules>
-    <!--
     <module>go</module>
-    -->
     <module>java</module>
     <module>python</module>
   </modules>
