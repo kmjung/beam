@@ -25,7 +25,10 @@ import static org.hamcrest.Matchers.hasItem;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThat;
+import static org.mockito.Mockito.when;
 
+import com.google.api.gax.rpc.ServerStreamingCallable;
+import com.google.api.gax.rpc.UnaryCallable;
 import com.google.api.services.bigquery.model.Job;
 import com.google.api.services.bigquery.model.JobStatistics;
 import com.google.api.services.bigquery.model.JobStatistics2;
@@ -38,6 +41,11 @@ import com.google.api.services.bigquery.model.TableReference;
 import com.google.api.services.bigquery.model.TableRow;
 import com.google.api.services.bigquery.model.TableSchema;
 import com.google.bigtable.v2.Mutation;
+import com.google.cloud.bigquery.v3.ParallelRead;
+import com.google.cloud.bigquery.v3.ParallelRead.ReadRowsResponse;
+import com.google.cloud.bigquery.v3.RowOuterClass;
+import com.google.cloud.bigquery.v3.TableReferenceProto;
+import com.google.cloud.bigquery.v3.stub.ParallelReadServiceStub;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
@@ -45,8 +53,11 @@ import com.google.protobuf.ByteString;
 import java.io.IOException;
 import java.io.Serializable;
 import java.math.BigInteger;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+
+import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.coders.CoderRegistry;
 import org.apache.beam.sdk.coders.KvCoder;
 import org.apache.beam.sdk.coders.VarIntCoder;
@@ -80,6 +91,7 @@ import org.junit.runner.Description;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 import org.junit.runners.model.Statement;
+import org.mockito.Mockito;
 
 /** Tests for {@link BigQueryIO#read}. */
 @RunWith(JUnit4.class)
@@ -472,7 +484,7 @@ public class BigQueryIOReadTest implements Serializable {
         ValueProvider.StaticValueProvider.of(table),
         fakeBqServices,
         TableRowJsonCoder.of(),
-        BigQueryIO.TableRowParser.INSTANCE);
+        BigQueryIO.TableRowAvroParser.INSTANCE);
 
     PipelineOptions options = PipelineOptionsFactory.create();
     options.setTempLocation(testFolder.getRoot().getAbsolutePath());
@@ -520,7 +532,7 @@ public class BigQueryIOReadTest implements Serializable {
         ValueProvider.StaticValueProvider.of(table),
         fakeBqServices,
         TableRowJsonCoder.of(),
-        BigQueryIO.TableRowParser.INSTANCE);
+        BigQueryIO.TableRowAvroParser.INSTANCE);
 
     PipelineOptions options = PipelineOptionsFactory.create();
     assertEquals(108, bqSource.getEstimatedSizeBytes(options));
@@ -553,7 +565,7 @@ public class BigQueryIOReadTest implements Serializable {
         ValueProvider.StaticValueProvider.of(table),
         fakeBqServices,
         TableRowJsonCoder.of(),
-        BigQueryIO.TableRowParser.INSTANCE);
+        BigQueryIO.TableRowAvroParser.INSTANCE);
 
     PipelineOptions options = PipelineOptionsFactory.create();
     assertEquals(118, bqSource.getEstimatedSizeBytes(options));
@@ -612,7 +624,7 @@ public class BigQueryIOReadTest implements Serializable {
         true /* useLegacySql */,
         fakeBqServices,
         TableRowJsonCoder.of(),
-        BigQueryIO.TableRowParser.INSTANCE);
+        BigQueryIO.TableRowAvroParser.INSTANCE);
     options.setTempLocation(testFolder.getRoot().getAbsolutePath());
 
     TableReference queryTable = new TableReference()
@@ -690,7 +702,7 @@ public class BigQueryIOReadTest implements Serializable {
         true /* useLegacySql */,
         fakeBqServices,
         TableRowJsonCoder.of(),
-        BigQueryIO.TableRowParser.INSTANCE);
+        BigQueryIO.TableRowAvroParser.INSTANCE);
 
     options.setTempLocation(testFolder.getRoot().getAbsolutePath());
 
@@ -784,5 +796,131 @@ public class BigQueryIOReadTest implements Serializable {
     assertEquals(
         KvCoder.of(ByteStringCoder.of(), ProtoCoder.of(Mutation.class)),
         BigQueryIO.read(parseFn).inferCoder(CoderRegistry.createDefault()));
+  }
+
+  private FakeBigQueryServicesV3 setUpBigQueryV3Mocks(Table table) throws IOException {
+    ParallelReadServiceStub mockStub = org.mockito.Mockito.mock(
+        ParallelReadServiceStub.class,
+        Mockito.withSettings().serializable());
+    FakeBigQueryServicesV3 serviceV3 = new FakeBigQueryServicesV3(mockStub);
+    UnaryCallable<ParallelRead.CreateSessionRequest, ParallelRead.Session> createSessionCallable =
+        (UnaryCallable<ParallelRead.CreateSessionRequest, ParallelRead.Session>) Mockito.mock(
+            UnaryCallable.class, Mockito.withSettings().serializable());
+    when(mockStub.createSessionCallable()).thenReturn(createSessionCallable);
+    TableReferenceProto.TableReference tableReference =
+        TableReferenceProto.TableReference.newBuilder()
+            .setProjectId(table.getTableReference().getProjectId())
+            .setDatasetId(table.getTableReference().getDatasetId())
+            .setTableId(table.getTableReference().getTableId()).build();
+    ParallelRead.CreateSessionRequest createSessionRequest =
+        ParallelRead.CreateSessionRequest.newBuilder()
+            .setReaderCount(1).setTableReference(tableReference).build();
+    ParallelRead.Reader reader = ParallelRead.Reader.newBuilder().setName("reader").build();
+    ParallelRead.ReadLocation location =
+        ParallelRead.ReadLocation.newBuilder().setReader(reader).build();
+    ParallelRead.Session session = ParallelRead.Session.newBuilder()
+        .setName("session").addInitialReadLocations(location).build();
+    when(createSessionCallable.call(createSessionRequest)).thenReturn(session);
+
+    // Mock ReadRows call.
+    ServerStreamingCallable<ParallelRead.ReadRowsRequest, ReadRowsResponse>
+        readRowsCallable =
+        (ServerStreamingCallable<ParallelRead.ReadRowsRequest, ParallelRead.ReadRowsResponse>)
+            Mockito.mock(ServerStreamingCallable.class, Mockito.withSettings().serializable());
+    when(mockStub.readRowsCallable()).thenReturn(readRowsCallable);
+    ParallelRead.ReadOptions options =
+        ParallelRead.ReadOptions.newBuilder().setMaxRows(1000).build();
+    ParallelRead.ReadRowsRequest readRowsRequest =
+        ParallelRead.ReadRowsRequest.newBuilder().setReadLocation(location).setOptions(options)
+            .build();
+    ParallelRead.ReadLocation location2 = ParallelRead.ReadLocation.newBuilder()
+        .setReader(reader).setToken("a").build();
+
+    RowOuterClass.Row row1 =
+        RowOuterClass.Row.newBuilder().setValue(
+            RowOuterClass.StructValue.newBuilder()
+                .addFields(RowOuterClass.Value.newBuilder().setStringValue("a").build())
+                .addFields(RowOuterClass.Value.newBuilder().setInt64Value(1L).build())
+                .build()).build();
+    RowOuterClass.Row row2 =
+        RowOuterClass.Row.newBuilder().setValue(
+            RowOuterClass.StructValue.newBuilder()
+                .addFields(RowOuterClass.Value.newBuilder().setStringValue("b").build())
+                .addFields(RowOuterClass.Value.newBuilder().setInt64Value(2L).build())
+                .build()).build();
+    RowOuterClass.Row row3 =
+        RowOuterClass.Row.newBuilder().setValue(
+            RowOuterClass.StructValue.newBuilder()
+                .addFields(RowOuterClass.Value.newBuilder().setStringValue("c").build())
+                .addFields(RowOuterClass.Value.newBuilder().setInt64Value(3L).build())
+                .build()).build();
+
+    ParallelRead.ReadRowsResponse response1 = ParallelRead.ReadRowsResponse.newBuilder()
+        .addRows(row1).addRows(row2).setReadLocation(location2).build();
+    ParallelRead.ReadRowsResponse response2 = ParallelRead.ReadRowsResponse.newBuilder()
+        .addRows(row3).build();
+
+    Iterator<ReadRowsResponse> readRowsResponseList =
+        ImmutableList.of(response1, response2).iterator();
+    when(readRowsCallable.blockingServerStreamingCall(readRowsRequest))
+        .thenReturn(readRowsResponseList);
+    return serviceV3;
+  }
+
+  private void testReadFromTableV3() throws IOException, InterruptedException {
+    BigQueryOptions bqOptions = TestPipeline.testingPipelineOptions().as(BigQueryOptions.class);
+    bqOptions.setProject("defaultproject");
+
+    Table sometable = new Table();
+    sometable.setSchema(
+        new TableSchema()
+            .setFields(
+                ImmutableList.of(
+                    new TableFieldSchema().setName("name").setType("STRING"),
+                    new TableFieldSchema().setName("number").setType("INTEGER"))));
+    sometable.setTableReference(
+        new TableReference()
+            .setProjectId("non-executing-project")
+            .setDatasetId("somedataset")
+            .setTableId("sometable"));
+    sometable.setNumBytes(1024L * 1024L);
+    FakeDatasetService fakeDatasetService = new FakeDatasetService();
+    fakeDatasetService.createDataset("non-executing-project", "somedataset", "", "", null);
+    fakeDatasetService.createTable(sometable);
+
+    FakeBigQueryServices fakeBqServices = new FakeBigQueryServices()
+        .withDatasetService(fakeDatasetService);
+    FakeBigQueryServicesV3 fakeBqServicesV3 = setUpBigQueryV3Mocks(sometable);
+
+    Pipeline p = TestPipeline.create(bqOptions);
+    BigQueryIO.TypedRead<TableRow> read =
+        BigQueryIO.readTableRowsV3()
+            .from("non-executing-project:somedataset.sometable")
+            .withTestServices(fakeBqServices)
+            .withTestServicesV3(fakeBqServicesV3)
+            .withoutValidation();
+    System.out.println("Read:" + read.getBigQueryServicesV3());
+    PCollection<KV<String, Long>> output =
+        p.apply(read)
+            .apply(
+                ParDo.of(
+                    new DoFn<TableRow, KV<String, Long>>() {
+                      @ProcessElement
+                      public void processElement(ProcessContext c) throws Exception {
+                        c.output(
+                            KV.of(
+                                (String) c.element().get("name"),
+                                Long.valueOf((String) c.element().get("number"))));
+                      }
+                    }));
+
+    PAssert.that(output)
+        .containsInAnyOrder(ImmutableList.of(KV.of("a", 1L), KV.of("b", 2L), KV.of("c", 3L)));
+    p.run();
+  }
+
+  @Test
+  public void testReadTableRowsV3() throws IOException, InterruptedException {
+    testReadFromTableV3();
   }
 }
