@@ -37,7 +37,7 @@ import com.google.api.services.bigquery.model.TableFieldSchema;
 import com.google.api.services.bigquery.model.TableReference;
 import com.google.api.services.bigquery.model.TableRow;
 import com.google.api.services.bigquery.model.TableSchema;
-import com.google.bigtable.v2.Mutation;
+import com.google.cloud.bigquery.v3.RowOuterClass.Row;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
@@ -53,6 +53,7 @@ import org.apache.beam.sdk.coders.VarIntCoder;
 import org.apache.beam.sdk.extensions.protobuf.ByteStringCoder;
 import org.apache.beam.sdk.extensions.protobuf.ProtoCoder;
 import org.apache.beam.sdk.io.BoundedSource;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.ReadSessionOptions;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.TypedRead.QueryPriority;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
@@ -65,6 +66,7 @@ import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.SerializableFunction;
+import org.apache.beam.sdk.transforms.SerializableFunctions;
 import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.sdk.transforms.display.DisplayData;
 import org.apache.beam.sdk.transforms.display.DisplayDataEvaluator;
@@ -82,9 +84,12 @@ import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 import org.junit.runners.model.Statement;
 
-/** Tests for {@link BigQueryIO#read}. */
+/**
+ * Tests for {@link BigQueryIO#read}.
+ */
 @RunWith(JUnit4.class)
 public class BigQueryIOReadTest implements Serializable {
+
   private transient PipelineOptions options;
   private transient TemporaryFolder testFolder = new TemporaryFolder();
   private transient TestPipeline p;
@@ -115,7 +120,8 @@ public class BigQueryIOReadTest implements Serializable {
         }
       };
 
-  @Rule public transient ExpectedException thrown = ExpectedException.none();
+  @Rule
+  public transient ExpectedException thrown = ExpectedException.none();
 
   private FakeDatasetService fakeDatasetService = new FakeDatasetService();
   private FakeJobService fakeJobService = new FakeJobService();
@@ -295,6 +301,18 @@ public class BigQueryIOReadTest implements Serializable {
         "Invalid BigQueryIO.Read: Specifies a table with a SQL dialect preference,"
             + " which only applies to queries");
     p.apply(BigQueryIO.read().from("foo.com:project:somedataset.sometable").usingStandardSql());
+    p.run();
+  }
+
+  @Test
+  public void testBuildSourceWithReadSessionOptions() {
+    thrown.expect(IllegalArgumentException.class);
+    thrown.expectMessage(
+        "Invalid BigQueryIO.Read: Specifies read session options, which only apply when using"
+            + " TypedRead.Method.READ");
+    p.apply(BigQueryIO.read(SerializableFunctions.identity())
+        .from("foo.com:project:somedataset.sometable")
+        .withReadSessionOptions(ReadSessionOptions.builder().build()));
     p.run();
   }
 
@@ -860,16 +878,16 @@ public class BigQueryIOReadTest implements Serializable {
   @Test
   public void testCoderInference() {
     // Lambdas erase too much type information - use an anonymous class here.
-    SerializableFunction<SchemaAndRecord, KV<ByteString, Mutation>> parseFn =
-        new SerializableFunction<SchemaAndRecord, KV<ByteString, Mutation>>() {
+    SerializableFunction<SchemaAndRecord, KV<ByteString, Row>> parseFn =
+        new SerializableFunction<SchemaAndRecord, KV<ByteString, Row>>() {
           @Override
-          public KV<ByteString, Mutation> apply(SchemaAndRecord input) {
+          public KV<ByteString, Row> apply(SchemaAndRecord input) {
             return null;
           }
         };
 
     assertEquals(
-        KvCoder.of(ByteStringCoder.of(), ProtoCoder.of(Mutation.class)),
+        KvCoder.of(ByteStringCoder.of(), ProtoCoder.of(Row.class)),
         BigQueryIO.read(parseFn).inferCoder(CoderRegistry.createDefault()));
   }
 }

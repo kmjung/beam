@@ -47,6 +47,7 @@ import org.slf4j.LoggerFactory;
 /** A {@link BigQuerySourceBase} for querying BigQuery tables. */
 @VisibleForTesting
 class BigQueryQuerySource<T> extends BigQuerySourceBase<T> {
+
   private static final Logger LOG = LoggerFactory.getLogger(BigQueryQuerySource.class);
 
   static <T> BigQueryQuerySource<T> create(
