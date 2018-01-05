@@ -55,7 +55,8 @@ public class SerializableUtils {
       return buffer.toByteArray();
     } catch (IOException exn) {
       throw new IllegalArgumentException(
-          "unable to serialize " + value,
+          // "unable to serialize " + value,
+          exn.getMessage() + ": " + value,
           exn);
     }
   }
