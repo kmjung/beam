@@ -29,11 +29,16 @@ import com.google.cloud.bigquery.v3.ParallelRead.Session;
 import com.google.cloud.bigquery.v3.RowOuterClass.Row;
 import java.io.IOException;
 import java.util.Iterator;
+import javax.annotation.Nullable;
+
 import org.apache.beam.sdk.coders.Coder;
+import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.transforms.SerializableFunction;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 
 /**
  * Iterates over all rows in a table.
@@ -47,13 +52,14 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
   private final BigQueryServicesV3 client;
   private String pageToken;
   private Iterator<TableRow> iteratorOverCurrentBatch;
-  private TableRow current;
   private Iterator<ReadRowsResponse> responseIterator;
   private Iterator<Row> rowIterator;
   private final ReadRowsRequest request;
   private SerializableFunction<SchemaAndRowProto, T> parseFn;
   private Coder<T> coder;
   private BoundedSource<T> source;
+  private GcpOptions options;
+  Row currentRow;
 
   private BigQueryV3Reader(Session session,
                            ReadLocation location,
@@ -61,16 +67,18 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
                            SerializableFunction<SchemaAndRowProto, T> parseFn,
                            Coder<T> coder,
                            BoundedSource<T> source,
-                           BigQueryServicesV3 client) {
+                           BigQueryServicesV3 client,
+                           GcpOptions options) {
     this.session = checkNotNull(session, "session");
     this.location = checkNotNull(location, "location");
     this.client = checkNotNull(client, "client");
-    this.parseFn = parseFn;
-    this.coder = coder;
-    this.source = source;
+    this.parseFn = checkNotNull(parseFn, "parseFn");
+    this.coder = checkNotNull(coder, "coder");
+    this.source = checkNotNull(source, "source");
     this.request = ReadRowsRequest.newBuilder()
         .setReadLocation(location)
         .setOptions(ReadOptions.newBuilder().setMaxRows(readBatch).build()).build();
+    this.options = options;
   }
 
   public static <T> BigQueryV3Reader create(Session session,
@@ -78,8 +86,10 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
                                             SerializableFunction<SchemaAndRowProto, T> parseFn,
                                             Coder<T> coder,
                                             BoundedSource<T> source,
-                                            BigQueryServicesV3 client) {
-    return new BigQueryV3Reader(session, location, 1000, parseFn, coder, source, client);
+                                            BigQueryServicesV3 client,
+                                            GcpOptions options) {
+    return new BigQueryV3Reader(session, location, 1000,
+        parseFn, coder, source, client, options);
   }
   /**
    * Empty operation, the table is already open for read.
@@ -87,29 +97,49 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
    */
   @Override
   public boolean start() throws IOException {
-    responseIterator = client.getParallelReadService().readRowsCallable()
+    LOG.info("start called");
+    responseIterator = client.getParallelReadService(options).readRowsCallable()
         .blockingServerStreamingCall(this.request);
-    return true;
+    if (responseIterator != null && responseIterator.hasNext()) {
+      rowIterator = responseIterator.next().getRowsList().iterator();
+      if (rowIterator.hasNext()) {
+        currentRow = rowIterator.next();
+        LOG.info("start done true");
+        return true;
+      }
+    }
+    LOG.info("start done false");
+    return false;
   }
 
   @Override
   public boolean advance() throws IOException {
-    if (!responseIterator.hasNext()) {
-      if (rowIterator != null) {
-        return rowIterator.hasNext();
-      } else {
-        return false;
-      }
+    if (responseIterator == null) {
+      throw new IOException("start() needs to be called first");
+    }
+    if (rowIterator != null && rowIterator.hasNext()) {
+      currentRow = rowIterator.next();
+      return true;
     }
     if (rowIterator == null || !rowIterator.hasNext()) {
-      rowIterator = responseIterator.next().getRowsList().iterator();
+      if (responseIterator.hasNext()) {
+        rowIterator = responseIterator.next().getRowsList().iterator();
+        if (rowIterator.hasNext()) {
+          currentRow = rowIterator.next();
+          return true;
+        }
+      }
     }
-    return rowIterator.hasNext();
+    currentRow = null;
+    return false;
   }
 
   @Override
   public T getCurrent() {
-    return parseFn.apply(new SchemaAndRowProto(session.getProjectedSchema(), rowIterator.next()));
+    if (currentRow == null) {
+      return null;
+    }
+    return parseFn.apply(new SchemaAndRowProto(session.getProjectedSchema(), currentRow));
   }
 
   @Override
@@ -122,6 +152,42 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
     return source;
   }
 
+  @Nullable
+  public Double getFractionConsumed() {
+    // LOG.info("getFractionConsumed called...");
+    // try {
+    //   Session currentSession = ((BigQueryV3SourceBase) this.source).getBqServicesV3()
+    //      .getParallelReadService(options.as(GcpOptions.class)).getSession(session.getName());
+    //  return currentSession.getPercentRowsProcessed();
+    // } catch (IOException ex) {
+    //   LOG.warn("GetSession throws: " + ex.getMessage());
+    //   return null;
+    // }
+    return null;
+  }
+
+  /**
+   * Not implemented. Ideally return the remaining parallism available for split.
+   * For example, for file based sharding, return the number of files already assigned.
+   * @return
+   */
+  @Override
+  public long getSplitPointsConsumed() {
+    // LOG.info("getSplitPointsConsumed called...");
+    return SPLIT_POINTS_UNKNOWN;
+  }
+
+  /**
+   * Not implemented. Ideally return the remaining parallism available for split.
+   * For example, for file based sharding, return the number of files unassigned.
+   * @return
+   */
+  @Override
+  public long getSplitPointsRemaining() {
+    // LOG.info("getSplitPointsRemaining called...");
+    return SPLIT_POINTS_UNKNOWN;
+  }
+
   /**
    * Ignore the actual fraction, upon split, always create a new reader.
    * @param fraction
@@ -129,12 +195,12 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
    */
   @Override
   public BoundedSource<T> splitAtFraction(double fraction) {
-    LOG.info("splitAtFraction called");
+    LOG.info("splitAtFraction called...");
     ParallelRead.CreateReadersRequest request = ParallelRead.CreateReadersRequest.newBuilder()
         .setSession(session).setNumNewReaders(1).build();
     try {
       ParallelRead.CreateReadersResponse response =
-          client.getParallelReadService().createReaders(request);
+          client.getParallelReadService(options).createReaders(request);
       return ((BigQueryV3TableSource) getCurrentSource())
           .cloneWithLocation(response.getInitialReadLocations(0));
     } catch (IOException ex) {

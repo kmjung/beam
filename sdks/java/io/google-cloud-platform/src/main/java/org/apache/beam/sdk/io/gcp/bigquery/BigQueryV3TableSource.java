@@ -33,6 +33,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.beam.sdk.coders.Coder;
+import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.TableRefToJson;
 import org.apache.beam.sdk.options.PipelineOptions;
@@ -59,24 +60,33 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
   private StructType tableSchema;
   private Session session;
   private ValueProvider<String> jsonTable;
-  Coder<T> coder;
   // Source's initial read location is not changeable.
   protected final ReadLocation initialReadLocation;
 
   private BigQueryV3TableSource(ValueProvider<String> jsonTable,
+                                Session session,
                                 ReadLocation readLocation,
-                                StructType tableSchema,
                                 SerializableFunction<SchemaAndRowProto, T> parseFn,
                                 Coder<T> coder,
                                 BigQueryServices bqServices,
                                 BigQueryServicesV3 bqServicesV3) {
     super(bqServices, bqServicesV3, coder, parseFn);
-    this.jsonTable = jsonTable;
-    this.tableSchema = tableSchema;
+    this.jsonTable = checkNotNull(jsonTable, "jsonTable");
+    this.session = session;
     this.tableSizeBytes = new AtomicReference<>();
-    this.initialReadLocation = checkNotNull(readLocation, "readLocation");
+    this.initialReadLocation = readLocation;
   }
 
+  /**
+   * Creation the initial {@link BigQueryV3TableSource}, with Session and ReadLocation to be null.
+   * @param table
+   * @param parseFn
+   * @param coder
+   * @param bqServices
+   * @param bqV3Services
+   * @param <T>
+   * @return
+   */
   public static <T> BigQueryV3TableSource<T> create(
       ValueProvider<TableReference> table,
       SerializableFunction<SchemaAndRowProto, T> parseFn,
@@ -85,8 +95,11 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
       BigQueryServicesV3 bqV3Services) {
     return new BigQueryV3TableSource(
         NestedValueProvider.of(checkNotNull(table, "table"), new TableRefToJson()),
-        ReadLocation.getDefaultInstance(),
         null,
+        // I am not sure if the first TableDataSource will be used for reading or not.
+        // If it is going to be used for reading, then we need to grab a valid ReadLocation after
+        // split is called.
+        ReadLocation.getDefaultInstance(),
         parseFn,
         coder,
         checkNotNull(bqServices),
@@ -95,7 +108,7 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
 
   public BigQueryV3TableSource cloneWithLocation(ReadLocation readLocation) {
     return new BigQueryV3TableSource(
-        jsonTable, readLocation, tableSchema, parseFn, coder, bqServices, bqServicesV3);
+        jsonTable, session, readLocation, parseFn, coder, bqServices, bqServicesV3);
   }
 
   /*
@@ -136,7 +149,7 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
   @Override
   public List<BoundedSource<T>> split(
       long desiredBundleSizeBytes, PipelineOptions options) throws Exception {
-    System.out.println("Split called.....");
+    LOG.info("Split called.....");
     BigQueryOptions bqOptions = options.as(BigQueryOptions.class);
     // Question: Could split ever be called on child node?
     if (cachedSplitResult == null) {
@@ -147,25 +160,31 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
           .setReaderCount((int) (getEstimatedSizeBytes(bqOptions) / desiredBundleSizeBytes))
           .setReadOptions(ReadOptions.TableReadOptions.getDefaultInstance())
           .build();
-      System.out.println("BqServicesV3:" + bqServicesV3);
-      System.out.println("PRClient:" + bqServicesV3.getParallelReadService());
-      System.out.println("Calling CreateSession:"
-          + bqServicesV3.getParallelReadService().createSessionCallable());
-      this.session = bqServicesV3.getParallelReadService().createSession(request);
-      System.out.println("Got Session: " + session);
+      LOG.info("BqServicesV3:" + bqServicesV3);
+      this.session = bqServicesV3.getParallelReadService(options.as(GcpOptions.class))
+          .createSession(request);
+      LOG.info("Got Session: " + session);
       this.tableSchema = session.getProjectedSchema();
-      cachedSplitResult = createV3Sources(jsonTable, session.getInitialReadLocationsList());
+      cachedSplitResult = createV3Sources(jsonTable, session);
       return cachedSplitResult;
     }
     return cachedSplitResult;
   }
 
+  /**
+   * Create {@link BigQueryV3TableSource} based on all the initial read locations in
+   * {@link Session}.
+   * @param jsonTable
+   * @param session
+   * @return
+   * @throws IOException
+   */
   List<BoundedSource<T>> createV3Sources(
-        ValueProvider<String> jsonTable, List<ReadLocation> readLocations) throws IOException {
+        ValueProvider<String> jsonTable, Session session) throws IOException {
     List<BoundedSource<T>> sources = Lists.newArrayList();
-    for (ReadLocation location : readLocations) {
+    for (ReadLocation location : session.getInitialReadLocationsList()) {
       sources.add(new BigQueryV3TableSource(
-          jsonTable, location, this.tableSchema, parseFn, coder,
+          jsonTable, session, location, parseFn, coder,
           this.bqServices, this.bqServicesV3));
     }
     return ImmutableList.copyOf(sources);
@@ -182,7 +201,7 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
       throws IOException {
     LOG.info("createReader called");
     return BigQueryV3Reader.create(session, initialReadLocation, parseFn, coder,
-        this, this.bqServicesV3);
+        this, this.bqServicesV3, options.as(GcpOptions.class));
   }
 
   public Session getSession() {

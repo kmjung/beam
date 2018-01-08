@@ -65,4 +65,8 @@ abstract class BigQueryV3SourceBase<T> extends BoundedSource<T> {
   public Coder<T> getOutputCoder() {
     return coder;
   }
+
+  public BigQueryServicesV3 getBqServicesV3() {
+    return bqServicesV3;
+  }
 }

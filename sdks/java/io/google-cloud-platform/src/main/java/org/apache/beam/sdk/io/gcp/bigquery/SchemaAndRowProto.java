@@ -17,6 +17,7 @@
  */
 package org.apache.beam.sdk.io.gcp.bigquery;
 
+import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 
 import com.google.api.services.bigquery.model.TableRow;
@@ -41,8 +42,8 @@ public class SchemaAndRowProto {
   TableRow tableRow;
 
   public SchemaAndRowProto(StructType tableSchema, Row row) {
-    this.tableSchema = tableSchema;
-    this.row = row;
+    this.tableSchema = checkNotNull(tableSchema, "tableSchema");
+    this.row = checkNotNull(row, "row");
   }
 
   public Row getRow() {

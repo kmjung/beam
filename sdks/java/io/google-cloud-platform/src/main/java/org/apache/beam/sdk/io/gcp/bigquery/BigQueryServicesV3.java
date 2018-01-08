@@ -20,6 +20,7 @@ package org.apache.beam.sdk.io.gcp.bigquery;
 import com.google.cloud.bigquery.v3.ParallelReadServiceClient;
 import java.io.IOException;
 import java.io.Serializable;
+import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
 
 /** An interface for real, mock, or fake implementations of Cloud BigQuery services. */
 interface BigQueryServicesV3 extends Serializable {
@@ -27,7 +28,7 @@ interface BigQueryServicesV3 extends Serializable {
   /**
    * Returns a real, mock, or fake {@link ParallelReadServiceClient}.
    */
-  ParallelReadServiceClient getParallelReadService() throws IOException;
+  ParallelReadServiceClient getParallelReadService(GcpOptions options) throws IOException;
   /**
    * TODO: thicker client that includes retries.
    */
