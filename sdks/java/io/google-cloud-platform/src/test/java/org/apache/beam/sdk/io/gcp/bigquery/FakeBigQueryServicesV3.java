@@ -4,6 +4,7 @@ import com.google.cloud.bigquery.v3.ParallelReadServiceClient;
 import com.google.cloud.bigquery.v3.stub.ParallelReadServiceStub;
 import java.io.IOException;
 import java.io.Serializable;
+import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
 
 /**
  * Fake {@link BigQueryServicesV3} implementation for test.
@@ -20,7 +21,7 @@ public class FakeBigQueryServicesV3 implements BigQueryServicesV3, Serializable 
    * @return
    * @throws IOException
    */
-  public ParallelReadServiceClient getParallelReadService() throws IOException {
+  public ParallelReadServiceClient getParallelReadService(GcpOptions options) throws IOException {
     return ParallelReadServiceClient.create(stub);
   }
 }
