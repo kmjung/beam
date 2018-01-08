@@ -28,17 +28,18 @@ import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
  * service v3 APIs.
  */
 class BigQueryServicesV3Impl implements BigQueryServicesV3 {
-  /**
-   * TODO: This function is not efficient in that it creates a client every time
-   *       it is called. However, I cannot catch the client since the client is
-   *       not serializable.
-   */
+  private transient ParallelReadServiceClient client;
+
   @Override
   public ParallelReadServiceClient getParallelReadService(GcpOptions options) throws IOException {
+    if (client != null) {
+      return client;
+    }
     CredentialsProvider credentialsProvider = new GcpCredentialsProvider(options);
     ParallelReadServiceSettings settings =
         ParallelReadServiceSettings.newBuilder()
             .setCredentialsProvider(credentialsProvider).build();
-    return ParallelReadServiceClient.create(settings);
+    client = ParallelReadServiceClient.create(settings);
+    return client;
   }
 }
