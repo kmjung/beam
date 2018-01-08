@@ -97,18 +97,16 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
    */
   @Override
   public boolean start() throws IOException {
-    LOG.info("start called");
+    LOG.info("start called " + location.toString());
     responseIterator = client.getParallelReadService(options).readRowsCallable()
         .blockingServerStreamingCall(this.request);
     if (responseIterator != null && responseIterator.hasNext()) {
       rowIterator = responseIterator.next().getRowsList().iterator();
       if (rowIterator.hasNext()) {
         currentRow = rowIterator.next();
-        LOG.info("start done true");
         return true;
       }
     }
-    LOG.info("start done false");
     return false;
   }
 
@@ -154,6 +152,7 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
 
   @Nullable
   public Double getFractionConsumed() {
+    // Disabled since it is called too often and our server is not ready to handle it.
     // LOG.info("getFractionConsumed called...");
     // try {
     //   Session currentSession = ((BigQueryV3SourceBase) this.source).getBqServicesV3()
@@ -173,7 +172,6 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
    */
   @Override
   public long getSplitPointsConsumed() {
-    // LOG.info("getSplitPointsConsumed called...");
     return SPLIT_POINTS_UNKNOWN;
   }
 
@@ -184,7 +182,6 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
    */
   @Override
   public long getSplitPointsRemaining() {
-    // LOG.info("getSplitPointsRemaining called...");
     return SPLIT_POINTS_UNKNOWN;
   }
 
