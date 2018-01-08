@@ -96,9 +96,7 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
     return new BigQueryV3TableSource(
         NestedValueProvider.of(checkNotNull(table, "table"), new TableRefToJson()),
         null,
-        // I am not sure if the first TableDataSource will be used for reading or not.
-        // If it is going to be used for reading, then we need to grab a valid ReadLocation after
-        // split is called.
+        // First TabeSource shouldn't be used to CreateReader.
         ReadLocation.getDefaultInstance(),
         parseFn,
         coder,
@@ -151,7 +149,6 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
       long desiredBundleSizeBytes, PipelineOptions options) throws Exception {
     LOG.info("Split called.....");
     BigQueryOptions bqOptions = options.as(BigQueryOptions.class);
-    // Question: Could split ever be called on child node?
     if (cachedSplitResult == null) {
       CreateSessionRequest request = CreateSessionRequest.newBuilder()
           .setTableReference(
@@ -160,10 +157,10 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
           .setReaderCount((int) (getEstimatedSizeBytes(bqOptions) / desiredBundleSizeBytes))
           .setReadOptions(ReadOptions.TableReadOptions.getDefaultInstance())
           .build();
-      LOG.info("BqServicesV3:" + bqServicesV3);
       this.session = bqServicesV3.getParallelReadService(options.as(GcpOptions.class))
           .createSession(request);
-      LOG.info("Got Session: " + session);
+      LOG.info("Created Session: " + session + " with "
+          + session.getInitialReadLocationsList().size() + " readers");
       this.tableSchema = session.getProjectedSchema();
       cachedSplitResult = createV3Sources(jsonTable, session);
       return cachedSplitResult;
