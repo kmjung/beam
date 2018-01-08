@@ -371,6 +371,7 @@ public class BigQueryIO {
    */
   public static <T> TypedRead<T> read(
       SerializableFunction<SchemaAndRecord, T> parseFn) {
+    LOG.info("readV2");
     return new AutoValue_BigQueryIO_TypedRead.Builder<T>()
         .setValidate(true)
         .setWithTemplateCompatibility(false)
@@ -395,6 +396,7 @@ public class BigQueryIO {
    */
   public static <T> TypedRead<T> readV3(
       SerializableFunction<SchemaAndRowProto, T> parseFn) {
+    LOG.info("readV3");
     return new AutoValue_BigQueryIO_TypedRead.Builder<T>()
         .setValidate(true)
         .setWithTemplateCompatibility(false)

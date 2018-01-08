@@ -82,98 +82,95 @@ import org.apache.beam.sdk.values.PCollection;
  */
 public class BQWordCount {
 
+  /**
+   * Concept #2: You can make your pipeline assembly code less verbose by defining your DoFns
+   * statically out-of-line. This DoFn tokenizes lines of text into individual words; we pass it
+   * to a ParDo in the pipeline.
+   */
+  static class ExtractWordsFn extends DoFn<Map<String, Object>, String> {
+    private final Counter emptyLines = Metrics.counter(ExtractWordsFn.class, "emptyLines");
+    private final Distribution lineLenDist = Metrics.distribution(
+        ExtractWordsFn.class, "lineLenDistro");
+
+    @ProcessElement
+    public void processElement(ProcessContext c) {
+      c.output((String) (c.element().get("word")));
+    }
+  }
+
+  /** A SimpleFunction that converts a Word and Count into a printable string. */
+  public static class FormatAsTextFn extends SimpleFunction<KV<String, Long>, String> {
+    @Override
+    public String apply(KV<String, Long> input) {
+      return input.getKey() + ": " + input.getValue();
+    }
+  }
+
+  /**
+   * A PTransform that converts a PCollection containing lines of text into a PCollection of
+   * formatted word counts.
+   *
+   * <p>Concept #3: This is a custom composite transform that bundles two transforms (ParDo and
+   * Count) as a reusable PTransform subclass. Using composite transforms allows for easy reuse,
+   * modular testing, and an improved monitoring experience.
+   */
+  public static class CountWords extends PTransform<PCollection<TableRow>,
+        PCollection<KV<String, Long>>> {
+    @Override
+    public PCollection<KV<String, Long>> expand(PCollection<TableRow> lines) {
+      // Convert lines of text into individual words.
+      PCollection<String> words = lines.apply(ParDo.of(new ExtractWordsFn()));
+
+      // Count the number of times each word occurs.
+      PCollection<KV<String, Long>> wordCounts = words.apply(Count.<String>perElement());
+
+      return wordCounts;
+    }
+  }
+
+  /**
+   * Options supported by {@link WordCount}.
+   *
+   * <p>Concept #4: Defining your own configuration options. Here, you can add your own arguments
+   * to be processed by the command-line parser, and specify default values for them. You can then
+   * access the options values in your pipeline code.
+   *
+   * <p>Inherits standard configuration options.
+   */
+  public interface WordCountOptions extends PipelineOptions, BigQueryOptions {
     /**
-     * Concept #2: You can make your pipeline assembly code less verbose by defining your DoFns
-     * statically out-of-line. This DoFn tokenizes lines of text into individual words; we pass it
-     * to a ParDo in the pipeline.
+     * Don't know why this has to be here.
      */
-    static class ExtractWordsFn extends DoFn<Map<String, Object>, String> {
-        private final Counter emptyLines = Metrics.counter(ExtractWordsFn.class, "emptyLines");
-        private final Distribution lineLenDist = Metrics.distribution(
-                ExtractWordsFn.class, "lineLenDistro");
+    @Description("Input File")
+    @Required
+    String getInputFile();
+    void setInputFile(String value);
 
-        @ProcessElement
-        public void processElement(ProcessContext c) {
-            c.output((String) (c.element().get("word")));
-        }
+    @Description("API Version to use")
+    @Required
+    Integer getVersion();
+    void setVersion(Integer version);
+}
+
+  public static void main(String[] args) {
+    WordCountOptions options = PipelineOptionsFactory.fromArgs(args).withValidation()
+        .as(WordCountOptions.class);
+    System.out.println(options.toString());
+
+    Pipeline p = Pipeline.create(options);
+
+    if (!(options.getVersion() == 3)) {
+      p.apply("ReadLines", BigQueryIO.readTableRows().from(
+          "bigquerytestdefault:samples.wikipedia"));
+    } else {
+      p.apply("ReadLinesV3", BigQueryIO.readTableRowsV3().from(
+          "bigquerytestdefault:samples.wikipedia"));
     }
-
-    /** A SimpleFunction that converts a Word and Count into a printable string. */
-    public static class FormatAsTextFn extends SimpleFunction<KV<String, Long>, String> {
-        @Override
-        public String apply(KV<String, Long> input) {
-            return input.getKey() + ": " + input.getValue();
-        }
-    }
-
-    /**
-     * A PTransform that converts a PCollection containing lines of text into a PCollection of
-     * formatted word counts.
-     *
-     * <p>Concept #3: This is a custom composite transform that bundles two transforms (ParDo and
-     * Count) as a reusable PTransform subclass. Using composite transforms allows for easy reuse,
-     * modular testing, and an improved monitoring experience.
-     */
-    public static class CountWords extends PTransform<PCollection<TableRow>,
-            PCollection<KV<String, Long>>> {
-        @Override
-        public PCollection<KV<String, Long>> expand(PCollection<TableRow> lines) {
-
-            // Convert lines of text into individual words.
-            PCollection<String> words = lines.apply(
-                    ParDo.of(new ExtractWordsFn()));
-
-            // Count the number of times each word occurs.
-            PCollection<KV<String, Long>> wordCounts =
-                    words.apply(Count.<String>perElement());
-
-            return wordCounts;
-        }
-    }
-
-    /**
-     * Options supported by {@link WordCount}.
-     *
-     * <p>Concept #4: Defining your own configuration options. Here, you can add your own arguments
-     * to be processed by the command-line parser, and specify default values for them. You can then
-     * access the options values in your pipeline code.
-     *
-     * <p>Inherits standard configuration options.
-     */
-    public interface WordCountOptions extends PipelineOptions, BigQueryOptions {
-        /**
-         * Don't know why this has to be here.
-         */
-        // @Description("Input File")
-        // @Required
-        // String getInputFile();
-        // void setInputFile(String value);
-
-        @Description("API Version to use")
-        @Required
-        Integer getVersion();
-        void setVersion(Integer version);
-    }
-
-    public static void main(String[] args) {
-        WordCountOptions options = PipelineOptionsFactory.fromArgs(args).withValidation()
-                .as(WordCountOptions.class);
-        System.out.println(options.toString());
-
-        Pipeline p = Pipeline.create(options);
-
-        if (options.getVersion() == 3) {
-            p.apply("ReadLines", BigQueryIO.readTableRows().from(
-                "bigquerytestdefault:samples.wikipedia"));
-        } else {
-            p.apply("ReadLinesV3", BigQueryIO.readTableRowsV3().from(
-                "bigquerytestdefault:samples.wikipedia"));
-        }
 
     /*p.apply(new CountWords())
      .apply(MapElements.via(new FormatAsTextFn()))
      .apply("WriteCounts", TextIO.write().to("count"));
     */
-        p.run().waitUntilFinish();
-    }
+    p.run().waitUntilFinish();
+  }
 }
