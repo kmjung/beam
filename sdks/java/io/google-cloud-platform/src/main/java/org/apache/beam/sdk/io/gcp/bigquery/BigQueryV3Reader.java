@@ -153,15 +153,13 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
   @Nullable
   public Double getFractionConsumed() {
     // Disabled since it is called too often and our server is not ready to handle it.
-    // LOG.info("getFractionConsumed called...");
-    // try {
-    //   Session currentSession = ((BigQueryV3SourceBase) this.source).getBqServicesV3()
-    //      .getParallelReadService(options.as(GcpOptions.class)).getSession(session.getName());
-    //  return currentSession.getPercentRowsProcessed();
-    // } catch (IOException ex) {
-    //   LOG.warn("GetSession throws: " + ex.getMessage());
-    //   return null;
-    // }
+    try {
+       Session currentSession = ((BigQueryV3SourceBase) this.source).getBqServicesV3()
+            .getParallelReadService(options.as(GcpOptions.class)).getSession(session.getName());
+       return currentSession.getPercentRowsProcessed();
+    } catch (IOException ex) {
+       LOG.warn("GetSession throws: " + ex.getMessage());
+    }
     return null;
   }
 
@@ -192,12 +190,13 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
    */
   @Override
   public BoundedSource<T> splitAtFraction(double fraction) {
-    LOG.info("splitAtFraction called...");
     ParallelRead.CreateReadersRequest request = ParallelRead.CreateReadersRequest.newBuilder()
         .setSession(session).setNumNewReaders(1).build();
     try {
       ParallelRead.CreateReadersResponse response =
           client.getParallelReadService(options).createReaders(request);
+      LOG.info("splitAtFraction called, got "
+          + response.getInitialReadLocationsList().size() + " new readers");
       return ((BigQueryV3TableSource) getCurrentSource())
           .cloneWithLocation(response.getInitialReadLocations(0));
     } catch (IOException ex) {

@@ -159,7 +159,7 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
           .build();
       this.session = bqServicesV3.getParallelReadService(options.as(GcpOptions.class))
           .createSession(request);
-      LOG.info("Created Session: " + session + " with "
+      LOG.info("Created Session: " + session.getName() + " with "
           + session.getInitialReadLocationsList().size() + " readers");
       this.tableSchema = session.getProjectedSchema();
       cachedSplitResult = createV3Sources(jsonTable, session);
@@ -196,7 +196,7 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
   @Override
   public BoundedReader<T> createReader(PipelineOptions options)
       throws IOException {
-    LOG.info("createReader called");
+    LOG.info("createReader called on " + initialReadLocation.toString());
     return BigQueryV3Reader.create(session, initialReadLocation, parseFn, coder,
         this, this.bqServicesV3, options.as(GcpOptions.class));
   }
