@@ -345,6 +345,8 @@ public class BigQueryIO {
    * <p>This method is more convenient to use in some cases, but usually has significantly lower
    * performance than using {@link #read(SerializableFunction)} directly to parse data into a
    * domain-specific type, due to the overhead of converting the rows to {@link TableRow}.
+   *
+   * TODO: Is there a way to add V3 reads without introducing a new method?
    */
   public static TypedRead<TableRow> readTableRowsV3() {
     return readV3(TableRowProtoParser.INSTANCE).withCoder(TableRowJsonCoder.of());

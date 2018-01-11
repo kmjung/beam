@@ -152,14 +152,10 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
 
   @Nullable
   public Double getFractionConsumed() {
-    // Disabled since it is called too often and our server is not ready to handle it.
-    try {
-       Session currentSession = ((BigQueryV3SourceBase) this.source).getBqServicesV3()
-            .getParallelReadService(options.as(GcpOptions.class)).getSession(session.getName());
-       return currentSession.getPercentRowsProcessed();
-    } catch (IOException ex) {
-       LOG.warn("GetSession throws: " + ex.getMessage());
-    }
+    // With liquid sharding on, the original workers should have same reading speed.
+    // Only when a reader is restarted and hold onto too many assigned rows, we may see some
+    // stragglers. Our current API doesn't have a nice way to handle this, so just report null and
+    // disable to feature for now.
     return null;
   }
 
@@ -195,7 +191,7 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
     try {
       ParallelRead.CreateReadersResponse response =
           client.getParallelReadService(options).createReaders(request);
-      LOG.info("splitAtFraction called, got "
+      LOG.info("splitAtFraction called with " + fraction + " , got "
           + response.getInitialReadLocationsList().size() + " new readers");
       return ((BigQueryV3TableSource) getCurrentSource())
           .cloneWithLocation(response.getInitialReadLocations(0));
