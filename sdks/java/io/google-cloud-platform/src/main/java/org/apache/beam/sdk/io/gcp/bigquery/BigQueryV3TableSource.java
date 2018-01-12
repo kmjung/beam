@@ -27,6 +27,7 @@ import com.google.cloud.bigquery.v3.ParallelRead.ReadLocation;
 import com.google.cloud.bigquery.v3.ParallelRead.Session;
 import com.google.cloud.bigquery.v3.ReadOptions;
 import com.google.cloud.bigquery.v3.RowOuterClass.StructType;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import java.io.IOException;
@@ -62,6 +63,7 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
   private ValueProvider<String> jsonTable;
   // Source's initial read location is not changeable.
   protected final ReadLocation initialReadLocation;
+  private BigQueryIO.ReadOptionsV3 readOptions;
 
   private BigQueryV3TableSource(ValueProvider<String> jsonTable,
                                 Session session,
@@ -69,12 +71,14 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
                                 SerializableFunction<SchemaAndRowProto, T> parseFn,
                                 Coder<T> coder,
                                 BigQueryServices bqServices,
-                                BigQueryServicesV3 bqServicesV3) {
+                                BigQueryServicesV3 bqServicesV3,
+                                BigQueryIO.ReadOptionsV3 readOptions) {
     super(bqServices, bqServicesV3, coder, parseFn);
     this.jsonTable = checkNotNull(jsonTable, "jsonTable");
     this.session = session;
     this.tableSizeBytes = new AtomicReference<>();
     this.initialReadLocation = readLocation;
+    this.readOptions = readOptions;
   }
 
   /**
@@ -84,6 +88,7 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
    * @param coder
    * @param bqServices
    * @param bqV3Services
+   * @param readOptions
    * @param <T>
    * @return
    */
@@ -92,7 +97,8 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
       SerializableFunction<SchemaAndRowProto, T> parseFn,
       Coder<T> coder,
       BigQueryServices bqServices,
-      BigQueryServicesV3 bqV3Services) {
+      BigQueryServicesV3 bqV3Services,
+      BigQueryIO.ReadOptionsV3 readOptions) {
     return new BigQueryV3TableSource(
         NestedValueProvider.of(checkNotNull(table, "table"), new TableRefToJson()),
         null,
@@ -101,12 +107,13 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
         parseFn,
         coder,
         checkNotNull(bqServices),
-        checkNotNull(bqV3Services));
+        checkNotNull(bqV3Services),
+        readOptions);
   }
 
   public BigQueryV3TableSource cloneWithLocation(ReadLocation readLocation) {
     return new BigQueryV3TableSource(
-        jsonTable, session, readLocation, parseFn, coder, bqServices, bqServicesV3);
+        jsonTable, session, readLocation, parseFn, coder, bqServices, bqServicesV3, readOptions);
   }
 
   /*
@@ -147,15 +154,26 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
   @Override
   public List<BoundedSource<T>> split(
       long desiredBundleSizeBytes, PipelineOptions options) throws Exception {
-    LOG.info("Split called.....");
     BigQueryOptions bqOptions = options.as(BigQueryOptions.class);
     if (cachedSplitResult == null) {
+      ReadOptions.TableReadOptions.Builder tableReadOptions =
+          ReadOptions.TableReadOptions.newBuilder();
+      if (readOptions != null) {
+        if (!Strings.isNullOrEmpty(readOptions.getSqlFilter())) {
+          tableReadOptions.setSqlFilter(readOptions.getSqlFilter());
+        }
+        if (readOptions.getSelectedFields() != null && !readOptions.getSelectedFields().isEmpty()) {
+          for (String field : readOptions.getSelectedFields()) {
+            tableReadOptions.addSelectedFields(field);
+          }
+        }
+      }
       CreateSessionRequest request = CreateSessionRequest.newBuilder()
           .setTableReference(
               convertTableReferenceToV3(
                   BigQueryIO.JSON_FACTORY.fromString(jsonTable.get(), TableReference.class)))
           .setReaderCount((int) (getEstimatedSizeBytes(bqOptions) / desiredBundleSizeBytes))
-          .setReadOptions(ReadOptions.TableReadOptions.getDefaultInstance())
+          .setReadOptions(tableReadOptions.build())
           .build();
       this.session = bqServicesV3.getParallelReadService(options.as(GcpOptions.class))
           .createSession(request);
@@ -182,7 +200,7 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
     for (ReadLocation location : session.getInitialReadLocationsList()) {
       sources.add(new BigQueryV3TableSource(
           jsonTable, session, location, parseFn, coder,
-          this.bqServices, this.bqServicesV3));
+          this.bqServices, this.bqServicesV3, this.readOptions));
     }
     return ImmutableList.copyOf(sources);
   }
