@@ -41,6 +41,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import java.io.IOException;
+import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -279,6 +280,40 @@ public class BigQueryIO {
   private static final Logger LOG = LoggerFactory.getLogger(BigQueryIO.class);
 
   /**
+   * You can specify field selection and a limited set of filter pushdown when using
+   * BigQueryV3 read API.
+   */
+  @AutoValue
+  public abstract static class ReadOptionsV3 implements Serializable {
+    public @Nullable abstract String getSqlFilter();
+    public abstract ImmutableList<String> getSelectedFields();
+    public @Nullable abstract Integer getRowBatchSize();
+
+    abstract ReadOptionsV3.Builder toBuilder();
+    public static Builder builder() {
+      return new AutoValue_BigQueryIO_ReadOptionsV3.Builder();
+    }
+
+    /**
+     * Builder for {link ReadOptionsV3}.
+     */
+    @AutoValue.Builder
+    public abstract static class Builder {
+      public abstract Builder setSqlFilter(String sqlFilter);
+      public abstract Builder setSelectedFields(ImmutableList<String> selectedFields);
+      public abstract Builder setRowBatchSize(Integer rowBatchSize);
+
+      protected abstract ImmutableList.Builder<String> selectedFieldsBuilder();
+      public Builder addSelectedField(String field) {
+        selectedFieldsBuilder().add(field);
+        return this;
+      }
+
+      public abstract ReadOptionsV3 build();
+    }
+  }
+
+  /**
    * Singleton instance of the JSON factory used to read and write JSON formatted rows.
    */
   static final JsonFactory JSON_FACTORY = Transport.getJsonFactory();
@@ -346,7 +381,7 @@ public class BigQueryIO {
    * performance than using {@link #read(SerializableFunction)} directly to parse data into a
    * domain-specific type, due to the overhead of converting the rows to {@link TableRow}.
    *
-   * TODO: Is there a way to add V3 reads without introducing a new method?
+   * <p>TODO: Is there a way to add V3 reads without introducing a new method?
    */
   public static TypedRead<TableRow> readTableRowsV3() {
     return readV3(TableRowProtoParser.INSTANCE).withCoder(TableRowJsonCoder.of());
@@ -572,7 +607,7 @@ public class BigQueryIO {
 
   /**
    * Implementation of {@link BigQueryIO#read(SerializableFunction)} and
-   * {@link BigQueryIO#readV3(SerializableFunction)}.
+   * {@link BigQueryIO#readV3(SerializableFunction, ReadOptionsV3)}.
    */
   @AutoValue
   public abstract static class TypedRead<T> extends PTransform<PBegin, PCollection<T>> {
@@ -590,6 +625,7 @@ public class BigQueryIO {
       abstract Builder<T> setBigQueryServicesV3(BigQueryServicesV3 bigQueryV3Services);
       // If value is set to 3, use BigQuery v3 API. Any other value will result in v2 read.
       abstract Builder<T> setApiVersion(Integer version);
+      abstract Builder<T> setReadOptionsV3(ReadOptionsV3 options);
       abstract TypedRead<T> build();
 
       abstract Builder<T> setParseFn(
@@ -610,6 +646,7 @@ public class BigQueryIO {
     @Nullable abstract BigQueryServices getBigQueryServices();
     @Nullable abstract BigQueryServicesV3 getBigQueryServicesV3();
     @Nullable abstract Integer getApiVersion();
+    @Nullable abstract ReadOptionsV3 getReadOptionsV3();
 
     @Nullable abstract SerializableFunction<SchemaAndRecord, T> getParseFn();
     @Nullable abstract SerializableFunction<SchemaAndRowProto, T> getParseFnV3();
@@ -621,9 +658,12 @@ public class BigQueryIO {
       if (getCoder() != null) {
         return getCoder();
       }
-
       try {
-        return coderRegistry.getCoder(TypeDescriptors.outputOf(getParseFn()));
+        if (getApiVersion() == 3) {
+          return coderRegistry.getCoder(TypeDescriptors.outputOf(getParseFnV3()));
+        } else {
+          return coderRegistry.getCoder(TypeDescriptors.outputOf(getParseFn()));
+        }
       } catch (CannotProvideCoderException e) {
         throw new IllegalArgumentException(
             "Unable to infer coder for output of parseFn. Specify it explicitly using withCoder().",
@@ -638,7 +678,7 @@ public class BigQueryIO {
           LOG.info("Creating V3 TableSource");
           source = BigQueryV3TableSource.create(
               getTableProvider(), getParseFnV3(), coder, getBigQueryServices(),
-              getBigQueryServicesV3());
+              getBigQueryServicesV3(), getReadOptionsV3());
         } else {
           LOG.info("Creating V2 TableSource");
           source = BigQueryTableSource.create(
@@ -932,6 +972,10 @@ public class BigQueryIO {
      */
     public TypedRead<T> withCoder(Coder<T> coder) {
       return toBuilder().setCoder(coder).build();
+    }
+
+    public TypedRead<T> withReadOptionsV3(ReadOptionsV3 options) {
+      return toBuilder().setReadOptionsV3(options).build();
     }
 
     /** See {@link Read#from(String)}. */
