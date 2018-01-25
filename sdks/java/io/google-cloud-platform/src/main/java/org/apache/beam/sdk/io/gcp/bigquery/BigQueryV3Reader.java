@@ -186,19 +186,8 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
    */
   @Override
   public BoundedSource<T> splitAtFraction(double fraction) {
-    ParallelRead.CreateReadersRequest request = ParallelRead.CreateReadersRequest.newBuilder()
-        .setSession(session).setNumNewReaders(1).build();
-    try {
-      ParallelRead.CreateReadersResponse response =
-          client.getParallelReadService(options).createReaders(request);
-      LOG.info("splitAtFraction called with " + fraction + " , got "
-          + response.getInitialReadLocationsList().size() + " new readers");
-      return ((BigQueryV3TableSource) getCurrentSource())
-          .cloneWithLocation(response.getInitialReadLocations(0));
-    } catch (IOException ex) {
-      LOG.warn("Failed to createReaders.", ex);
-      return null;
-    }
+    LOG.info("splitAtFraction called");
+    return null;
   }
 }
 
