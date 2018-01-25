@@ -20,7 +20,6 @@ package org.apache.beam.sdk.io.gcp.bigquery;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.api.services.bigquery.model.TableRow;
-import com.google.cloud.bigquery.v3.ParallelRead;
 import com.google.cloud.bigquery.v3.ParallelRead.ReadLocation;
 import com.google.cloud.bigquery.v3.ParallelRead.ReadOptions;
 import com.google.cloud.bigquery.v3.ParallelRead.ReadRowsRequest;
