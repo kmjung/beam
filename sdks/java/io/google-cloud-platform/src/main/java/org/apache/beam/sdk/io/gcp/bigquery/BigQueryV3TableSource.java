@@ -168,11 +168,12 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
           }
         }
       }
+      // Without setting the reader count, it should always return the max number of readers
+      // possible.
       CreateSessionRequest request = CreateSessionRequest.newBuilder()
           .setTableReference(
               convertTableReferenceToV3(
                   BigQueryIO.JSON_FACTORY.fromString(jsonTable.get(), TableReference.class)))
-          .setReaderCount((int) (getEstimatedSizeBytes(bqOptions) / desiredBundleSizeBytes))
           .setReadOptions(tableReadOptions.build())
           .build();
       this.session = bqServicesV3.getParallelReadService(options.as(GcpOptions.class))
