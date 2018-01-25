@@ -61,6 +61,7 @@ public class GcpApiSurfaceTest {
             classesInPackage("com.google.api.services.bigquery.model"),
             classesInPackage("com.google.auth"),
             classesInPackage("com.google.bigtable.v2"),
+            classesInPackage("com.google.common"),
             classesInPackage("com.google.cloud.bigquery.v3"),
             classesInPackage("com.google.cloud.bigtable.config"),
             classesInPackage("com.google.spanner.v1"),
