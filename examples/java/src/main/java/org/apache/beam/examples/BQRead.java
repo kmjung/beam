@@ -44,6 +44,8 @@ import org.apache.beam.sdk.options.Validation.Required;
  *
  */
 public class BQRead {
+  private static final String DEFAULT_TABLE_REFERENCE = "bigquery-public-data:samples.wikipedia";
+
   /**
    * Options supported by {@link WordCount}.
    *
@@ -90,28 +92,27 @@ public class BQRead {
 
     if (!(options.getVersion() == 3)) {
       if (options.getReadMode() == BQReadOptions.ReadMode.Full) {
-        // TODO: when published, this needs to be a public table.
         p.apply("ReadLines",
-            BigQueryIO.readTableRows().from("bigquerytestdefault:samples.wikipedia"));
+            BigQueryIO.readTableRows().from(DEFAULT_TABLE_REFERENCE));
       } else if (options.getReadMode() == BQReadOptions.ReadMode.FieldSelection) {
         p.apply("ReadLinesPartialRow",
             BigQueryIO.read(
                 new SerializableFunction<SchemaAndRecord, String>() {
                   @Override
                   public String apply(SchemaAndRecord record) {
-                    GenericRecord r = record.getRecord();
-                    return r.get("title").toString();
+                    return record.getRecord().get("title").toString();
                   }
-                }).from("bigquerytestdefault:samples.wikipedia"));
+                })
+                .from(DEFAULT_TABLE_REFERENCE));
       } else if (options.getReadMode() == BQReadOptions.ReadMode.Filter) {
         // TODO: Add a meaningful example of do some computation with upper level filtering.
         p.apply("ReadLines",
-            BigQueryIO.readTableRows().from("bigquerytestdefault:samples.wikipedia"));
+            BigQueryIO.readTableRows().from(DEFAULT_TABLE_REFERENCE));
       }
     } else {
       if (options.getReadMode() == BQReadOptions.ReadMode.Full) {
         p.apply("ReadLinesV3", BigQueryIO.readTableRowsV3().from(
-            "bigquerytestdefault:samples.wikipedia"));
+            DEFAULT_TABLE_REFERENCE));
       } else if (options.getReadMode() == BQReadOptions.ReadMode.FieldSelection) {
         p.apply("ReadLinesV3PartialRow",
             BigQueryIO.readV3(
@@ -119,14 +120,15 @@ public class BQRead {
                   public String apply(SchemaAndRowProto record) {
                     return (String) record.get("title");
                   }
-                }).from("bigquerytestdefault:samples.wikipedia")
+                })
+                .from(DEFAULT_TABLE_REFERENCE)
                 .withCoder(NullableCoder.of(StringUtf8Coder.of()))
                 .withReadOptionsV3(BigQueryIO.ReadOptionsV3.builder()
                     .addSelectedField("title")
                     .build()));
       } else if (options.getReadMode() == BQReadOptions.ReadMode.Filter) {
         p.apply("ReadLinesV3Filter", BigQueryIO.readTableRowsV3()
-            .from("bigquerytestdefault:samples.wikipedia")
+            .from(DEFAULT_TABLE_REFERENCE)
             .withReadOptionsV3(BigQueryIO.ReadOptionsV3.builder()
                 .setSqlFilter("num_characters > 5000")
                 .build()));
