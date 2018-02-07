@@ -285,9 +285,9 @@ public class BigQueryIO {
    */
   @AutoValue
   public abstract static class ReadOptionsV3 implements Serializable {
-    public @Nullable abstract String getSqlFilter();
+    @Nullable public abstract String getSqlFilter();
     public abstract ImmutableList<String> getSelectedFields();
-    public @Nullable abstract Integer getRowBatchSize();
+    @Nullable public abstract Integer getRowBatchSize();
 
     abstract ReadOptionsV3.Builder toBuilder();
     public static Builder builder() {
@@ -408,7 +408,6 @@ public class BigQueryIO {
    */
   public static <T> TypedRead<T> read(
       SerializableFunction<SchemaAndRecord, T> parseFn) {
-    LOG.info("readV2");
     return new AutoValue_BigQueryIO_TypedRead.Builder<T>()
         .setValidate(true)
         .setWithTemplateCompatibility(false)
@@ -433,7 +432,6 @@ public class BigQueryIO {
    */
   public static <T> TypedRead<T> readV3(
       SerializableFunction<SchemaAndRowProto, T> parseFn) {
-    LOG.info("readV3");
     return new AutoValue_BigQueryIO_TypedRead.Builder<T>()
         .setValidate(true)
         .setWithTemplateCompatibility(false)
@@ -704,12 +702,10 @@ public class BigQueryIO {
       BoundedSource<T> source;
       if (getQuery() == null) {
         if (getApiVersion() == 3) {
-          LOG.info("Creating V3 TableSource");
           source = BigQueryV3TableSource.create(
               getTableProvider(), getParseFnV3(), coder, getBigQueryServices(),
               getBigQueryServicesV3(), getReadOptionsV3());
         } else {
-          LOG.info("Creating V2 TableSource");
           source = BigQueryTableSource.create(
               jobUuid,
               getTableProvider(),
@@ -721,7 +717,6 @@ public class BigQueryIO {
         if (getApiVersion() == 3) {
           throw new UnsupportedOperationException("Query using V3 API is not supported yet.");
         }
-        LOG.info("Creating Query Source");
         source =
             BigQueryQuerySource.create(
                 jobUuid,
@@ -745,7 +740,6 @@ public class BigQueryIO {
       // Even if existence validation is disabled, we need to make sure that the BigQueryIO
       // read is properly specified.
       BigQueryOptions bqOptions = options.as(BigQueryOptions.class);
-      LOG.info("Read validate called");
       if (getApiVersion() != 3) {
         String tempLocation = bqOptions.getTempLocation();
         checkArgument(
@@ -801,7 +795,6 @@ public class BigQueryIO {
 
     @Override
     public PCollection<T> expand(PBegin input) {
-      LOG.info("read expand called");
       ValueProvider<TableReference> table = getTableProvider();
 
       if (table != null) {
