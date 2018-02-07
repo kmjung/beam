@@ -30,6 +30,6 @@ interface BigQueryServicesV3 extends Serializable {
    */
   ParallelReadServiceClient getParallelReadService(GcpOptions options) throws IOException;
   /**
-   * TODO: thicker client that includes retries.
+   * TODO: thicker client that includes retries within a stream.
    */
 }
