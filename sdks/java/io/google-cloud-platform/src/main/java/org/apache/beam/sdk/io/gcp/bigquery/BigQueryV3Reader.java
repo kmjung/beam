@@ -96,7 +96,6 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
    */
   @Override
   public boolean start() throws IOException {
-    LOG.info("start called " + location.toString());
     responseIterator = client.getParallelReadService(options).readRowsCallable()
         .blockingServerStreamingCall(this.request);
     if (responseIterator != null && responseIterator.hasNext()) {
@@ -185,7 +184,6 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
    */
   @Override
   public BoundedSource<T> splitAtFraction(double fraction) {
-    LOG.info("splitAtFraction called");
     return null;
   }
 }

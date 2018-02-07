@@ -47,7 +47,7 @@ public class BQRead {
   private static final String DEFAULT_TABLE_REFERENCE = "bigquery-public-data:samples.wikipedia";
 
   /**
-   * Options supported by {@link WordCount}.
+   * Options supported by {@link BQRead}.
    *
    * <p>Concept #4: Defining your own configuration options. Here, you can add your own arguments
    * to be processed by the command-line parser, and specify default values for them. You can then
@@ -60,24 +60,17 @@ public class BQRead {
      * Enumeration of different read mode.
      */
     enum ReadMode {
-      Full,
-      FieldSelection,
-      Filter
+      FULL,
+      FIELD_SELECTION,
+      FILTER
     }
-    /**
-     * Don't know why this has to be here.
-     */
-    @Description("Input File")
-    @Required
-    String getInputFile();
-    void setInputFile(String value);
 
     @Description("API Version to use")
     @Required
     Integer getVersion();
     void setVersion(Integer version);
 
-    @Description("Read mode: fullRow, partialRow, filter")
+    @Description("Read mode: FULL, FIELD_SELECTION, FILTER")
     @Required
     ReadMode getReadMode();
     void setReadMode(ReadMode value);
@@ -86,34 +79,15 @@ public class BQRead {
   public static void main(String[] args) {
     BQReadOptions options = PipelineOptionsFactory.fromArgs(args).withValidation()
         .as(BQReadOptions.class);
-    System.out.println(options.toString());
 
     Pipeline p = Pipeline.create(options);
 
-    if (!(options.getVersion() == 3)) {
-      if (options.getReadMode() == BQReadOptions.ReadMode.Full) {
-        p.apply("ReadLines",
-            BigQueryIO.readTableRows().from(DEFAULT_TABLE_REFERENCE));
-      } else if (options.getReadMode() == BQReadOptions.ReadMode.FieldSelection) {
-        p.apply("ReadLinesPartialRow",
-            BigQueryIO.read(
-                new SerializableFunction<SchemaAndRecord, String>() {
-                  @Override
-                  public String apply(SchemaAndRecord record) {
-                    return record.getRecord().get("title").toString();
-                  }
-                })
-                .from(DEFAULT_TABLE_REFERENCE));
-      } else if (options.getReadMode() == BQReadOptions.ReadMode.Filter) {
-        // TODO: Add a meaningful example of do some computation with upper level filtering.
-        p.apply("ReadLines",
-            BigQueryIO.readTableRows().from(DEFAULT_TABLE_REFERENCE));
-      }
-    } else {
-      if (options.getReadMode() == BQReadOptions.ReadMode.Full) {
+    // TODO: Add some data validation on the results.
+    if (options.getVersion() == 3) {
+      if (options.getReadMode() == BQReadOptions.ReadMode.FULL) {
         p.apply("ReadLinesV3", BigQueryIO.readTableRowsV3().from(
             DEFAULT_TABLE_REFERENCE));
-      } else if (options.getReadMode() == BQReadOptions.ReadMode.FieldSelection) {
+      } else if (options.getReadMode() == BQReadOptions.ReadMode.FIELD_SELECTION) {
         p.apply("ReadLinesV3PartialRow",
             BigQueryIO.readV3(
                 new SerializableFunction<SchemaAndRowProto, String>() {
@@ -126,12 +100,31 @@ public class BQRead {
                 .withReadOptionsV3(BigQueryIO.ReadOptionsV3.builder()
                     .addSelectedField("title")
                     .build()));
-      } else if (options.getReadMode() == BQReadOptions.ReadMode.Filter) {
+      } else if (options.getReadMode() == BQReadOptions.ReadMode.FILTER) {
         p.apply("ReadLinesV3Filter", BigQueryIO.readTableRowsV3()
             .from(DEFAULT_TABLE_REFERENCE)
             .withReadOptionsV3(BigQueryIO.ReadOptionsV3.builder()
                 .setSqlFilter("num_characters > 5000")
                 .build()));
+      }
+    } else {
+      if (options.getReadMode() == BQReadOptions.ReadMode.FULL) {
+        p.apply("ReadLines",
+            BigQueryIO.readTableRows().from(DEFAULT_TABLE_REFERENCE));
+      } else if (options.getReadMode() == BQReadOptions.ReadMode.FIELD_SELECTION) {
+        p.apply("ReadLinesPartialRow",
+            BigQueryIO.read(
+                new SerializableFunction<SchemaAndRecord, String>() {
+                  @Override
+                  public String apply(SchemaAndRecord record) {
+                    return record.getRecord().get("title").toString();
+                  }
+                })
+                .from(DEFAULT_TABLE_REFERENCE));
+      } else if (options.getReadMode() == BQReadOptions.ReadMode.FILTER) {
+        // TODO: Add a meaningful example of do some computation with upper level filtering.
+        p.apply("ReadLines",
+            BigQueryIO.readTableRows().from(DEFAULT_TABLE_REFERENCE));
       }
     }
     p.run().waitUntilFinish();
