@@ -96,8 +96,7 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
    */
   @Override
   public boolean start() throws IOException {
-    responseIterator = client.getParallelReadService(options).readRowsCallable()
-        .blockingServerStreamingCall(this.request);
+    responseIterator = client.getTableReadService(options).readRows(request);
     if (responseIterator != null && responseIterator.hasNext()) {
       rowIterator = responseIterator.next().getRowsList().iterator();
       if (rowIterator.hasNext()) {
