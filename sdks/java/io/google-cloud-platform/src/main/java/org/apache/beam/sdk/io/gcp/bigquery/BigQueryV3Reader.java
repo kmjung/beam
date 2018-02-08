@@ -20,6 +20,7 @@ package org.apache.beam.sdk.io.gcp.bigquery;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.api.services.bigquery.model.TableRow;
+import com.google.cloud.bigquery.v3.ParallelRead;
 import com.google.cloud.bigquery.v3.ParallelRead.ReadLocation;
 import com.google.cloud.bigquery.v3.ParallelRead.ReadOptions;
 import com.google.cloud.bigquery.v3.ParallelRead.ReadRowsRequest;
@@ -46,16 +47,13 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
 
   private static final Logger LOG = LoggerFactory.getLogger(BigQueryV3Reader.class);
 
-  private ReadLocation location;
   private Session session;
   private final BigQueryServicesV3 client;
-  private String pageToken;
   private Iterator<TableRow> iteratorOverCurrentBatch;
   private Iterator<ReadRowsResponse> responseIterator;
   private Iterator<Row> rowIterator;
   private final ReadRowsRequest request;
   private SerializableFunction<SchemaAndRowProto, T> parseFn;
-  private Coder<T> coder;
   private BoundedSource<T> source;
   private GcpOptions options;
   Row currentRow;
@@ -69,10 +67,8 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
                            BigQueryServicesV3 client,
                            GcpOptions options) {
     this.session = checkNotNull(session, "session");
-    this.location = checkNotNull(location, "location");
     this.client = checkNotNull(client, "client");
     this.parseFn = checkNotNull(parseFn, "parseFn");
-    this.coder = checkNotNull(coder, "coder");
     this.source = checkNotNull(source, "source");
     this.request = ReadRowsRequest.newBuilder()
         .setReadLocation(location)
@@ -145,45 +141,6 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
   @Override
   public BoundedSource<T> getCurrentSource() {
     return source;
-  }
-
-  @Nullable
-  public Double getFractionConsumed() {
-    // With liquid sharding on, the original workers should have same reading speed.
-    // Only when a reader is restarted and hold onto too many assigned rows, we may see some
-    // stragglers. Our current API doesn't have a nice way to handle this, so just report null and
-    // disable to feature for now.
-    return null;
-  }
-
-  /**
-   * Not implemented. Ideally return the remaining parallism available for split.
-   * For example, for file based sharding, return the number of files already assigned.
-   * @return
-   */
-  @Override
-  public long getSplitPointsConsumed() {
-    return SPLIT_POINTS_UNKNOWN;
-  }
-
-  /**
-   * Not implemented. Ideally return the remaining parallism available for split.
-   * For example, for file based sharding, return the number of files unassigned.
-   * @return
-   */
-  @Override
-  public long getSplitPointsRemaining() {
-    return SPLIT_POINTS_UNKNOWN;
-  }
-
-  /**
-   * Ignore the actual fraction, upon split, always create a new reader.
-   * @param fraction
-   * @return
-   */
-  @Override
-  public BoundedSource<T> splitAtFraction(double fraction) {
-    return null;
   }
 }
 
