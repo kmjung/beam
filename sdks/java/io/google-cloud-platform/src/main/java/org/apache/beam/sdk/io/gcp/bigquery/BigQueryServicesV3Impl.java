@@ -17,10 +17,14 @@
  */
 package org.apache.beam.sdk.io.gcp.bigquery;
 
-import com.google.api.gax.core.CredentialsProvider;
+import com.google.cloud.bigquery.v3.ParallelRead.CreateSessionRequest;
+import com.google.cloud.bigquery.v3.ParallelRead.ReadRowsRequest;
+import com.google.cloud.bigquery.v3.ParallelRead.ReadRowsResponse;
+import com.google.cloud.bigquery.v3.ParallelRead.Session;
 import com.google.cloud.bigquery.v3.ParallelReadServiceClient;
 import com.google.cloud.bigquery.v3.ParallelReadServiceSettings;
 import java.io.IOException;
+import java.util.Iterator;
 import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
 
 /**
@@ -28,18 +32,32 @@ import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
  * service v3 APIs.
  */
 class BigQueryServicesV3Impl implements BigQueryServicesV3 {
-  private transient ParallelReadServiceClient client;
 
   @Override
-  public ParallelReadServiceClient getParallelReadService(GcpOptions options) throws IOException {
-    if (client != null) {
-      return client;
-    }
-    CredentialsProvider credentialsProvider = new GcpCredentialsProvider(options);
-    ParallelReadServiceSettings settings =
-        ParallelReadServiceSettings.newBuilder()
-            .setCredentialsProvider(credentialsProvider).build();
-    client = ParallelReadServiceClient.create(settings);
-    return client;
+  public TableReadService getTableReadService(GcpOptions options) throws IOException {
+    return new TableReadServiceImpl(options);
   }
+
+  static class TableReadServiceImpl implements TableReadService {
+
+    private ParallelReadServiceClient client;
+
+    private TableReadServiceImpl(GcpOptions options) throws IOException {
+      ParallelReadServiceSettings settings = ParallelReadServiceSettings.newBuilder()
+          .setCredentialsProvider(new GcpCredentialsProvider(options))
+          .build();
+      this.client = ParallelReadServiceClient.create(settings);
+    }
+
+    @Override
+    public Session createSession(CreateSessionRequest request) {
+      return client.createSession(request);
+    }
+
+    @Override
+    public Iterator<ReadRowsResponse> readRows(ReadRowsRequest request) {
+      return client.readRowsCallable().blockingServerStreamingCall(request);
+    }
+  }
+
 }
