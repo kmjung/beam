@@ -17,19 +17,30 @@
  */
 package org.apache.beam.sdk.io.gcp.bigquery;
 
-import com.google.cloud.bigquery.v3.ParallelReadServiceClient;
+import com.google.cloud.bigquery.v3.ParallelRead.CreateSessionRequest;
+import com.google.cloud.bigquery.v3.ParallelRead.ReadRowsRequest;
+import com.google.cloud.bigquery.v3.ParallelRead.ReadRowsResponse;
+import com.google.cloud.bigquery.v3.ParallelRead.Session;
 import java.io.IOException;
 import java.io.Serializable;
+import java.util.Iterator;
 import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
 
 /** An interface for real, mock, or fake implementations of Cloud BigQuery services. */
 interface BigQueryServicesV3 extends Serializable {
 
-  /**
-   * Returns a real, mock, or fake {@link ParallelReadServiceClient}.
-   */
-  ParallelReadServiceClient getParallelReadService(GcpOptions options) throws IOException;
-  /**
-   * TODO: thicker client that includes retries within a stream.
-   */
+  TableReadService getTableReadService(GcpOptions options) throws IOException;
+
+  interface TableReadService {
+
+    /**
+     * Creates a new read session against an existing table.
+     */
+    Session createSession(CreateSessionRequest request);
+
+    /**
+     * Initiates a read stream from an existing session and read location.
+     */
+    Iterator<ReadRowsResponse> readRows(ReadRowsRequest request);
+  }
 }

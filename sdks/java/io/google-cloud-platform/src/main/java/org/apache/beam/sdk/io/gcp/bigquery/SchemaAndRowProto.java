@@ -118,9 +118,13 @@ public class SchemaAndRowProto {
    */
   @Nullable
   private Object getFieldValue(RowOuterClass.Type fieldType, RowOuterClass.Value fieldValue) {
+    // TODO(kmj): This check always evaluates to true, and so it breaks parsing.
+    // What's the right way to handle null values?
+    /*
     if (fieldValue.getNullValue() == RowOuterClass.NullValue.NULL_VALUE) {
       return null;
     }
+    */
 
     switch (fieldType.getTypeKind()) {
       case TYPE_INT64:

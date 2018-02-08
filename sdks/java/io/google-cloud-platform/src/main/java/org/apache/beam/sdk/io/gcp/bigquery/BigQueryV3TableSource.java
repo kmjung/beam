@@ -176,7 +176,7 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
                   BigQueryIO.JSON_FACTORY.fromString(jsonTable.get(), TableReference.class)))
           .setReadOptions(tableReadOptions.build())
           .build();
-      this.session = bqServicesV3.getParallelReadService(options.as(GcpOptions.class))
+      session = bqServicesV3.getTableReadService(options.as(GcpOptions.class))
           .createSession(request);
       LOG.info("Created Session: " + session.getName() + " with "
           + session.getInitialReadLocationsList().size() + " readers");
