@@ -11,7 +11,7 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServicesV3.TableReadService;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.TableReadService;
 
 /**
  * A fake implementation of {@link TableReadService} for testing.
