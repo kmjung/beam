@@ -1039,8 +1039,8 @@ public class BigQueryIOReadTest implements Serializable {
                         c.output(
                             KV.of(
                                 (String) c.element().get("name"),
-                                // TODO(kmj): Somewhere along the line, this type gets converted
-                                // from a Long (int64) to an Integer (int32) -- presumably when
+                                // TODO: Somewhere along the line, this type gets converted from a
+                                // Long (int64) to an Integer (int32) -- presumably when
                                 // serializing to/from JSON? This is not ideal, and we should try
                                 // to figure out why and address the issue.
                                 (Integer) c.element().get("number")));
