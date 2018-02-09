@@ -34,7 +34,6 @@ import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.beam.sdk.coders.Coder;
-import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.TableRefToJson;
 import org.apache.beam.sdk.options.PipelineOptions;
@@ -43,7 +42,6 @@ import org.apache.beam.sdk.options.ValueProvider.NestedValueProvider;
 import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 
 /**
  * An abstract {@link BoundedSource} to read a table from BigQuery.
@@ -71,9 +69,8 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
                                 SerializableFunction<SchemaAndRowProto, T> parseFn,
                                 Coder<T> coder,
                                 BigQueryServices bqServices,
-                                BigQueryServicesV3 bqServicesV3,
                                 BigQueryIO.ReadOptionsV3 readOptions) {
-    super(bqServices, bqServicesV3, coder, parseFn);
+    super(bqServices, coder, parseFn);
     this.jsonTable = checkNotNull(jsonTable, "jsonTable");
     this.session = session;
     this.tableSizeBytes = new AtomicReference<>();
@@ -87,7 +84,6 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
    * @param parseFn
    * @param coder
    * @param bqServices
-   * @param bqV3Services
    * @param readOptions
    * @param <T>
    * @return
@@ -97,7 +93,6 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
       SerializableFunction<SchemaAndRowProto, T> parseFn,
       Coder<T> coder,
       BigQueryServices bqServices,
-      BigQueryServicesV3 bqV3Services,
       BigQueryIO.ReadOptionsV3 readOptions) {
     return new BigQueryV3TableSource(
         NestedValueProvider.of(checkNotNull(table, "table"), new TableRefToJson()),
@@ -107,13 +102,12 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
         parseFn,
         coder,
         checkNotNull(bqServices),
-        checkNotNull(bqV3Services),
         readOptions);
   }
 
   public BigQueryV3TableSource cloneWithLocation(ReadLocation readLocation) {
     return new BigQueryV3TableSource(
-        jsonTable, session, readLocation, parseFn, coder, bqServices, bqServicesV3, readOptions);
+        jsonTable, session, readLocation, parseFn, coder, bqServices, readOptions);
   }
 
   /*
@@ -176,7 +170,7 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
                   BigQueryIO.JSON_FACTORY.fromString(jsonTable.get(), TableReference.class)))
           .setReadOptions(tableReadOptions.build())
           .build();
-      session = bqServicesV3.getTableReadService(options.as(GcpOptions.class))
+      session = bqServices.getTableReadService(options.as(BigQueryOptions.class))
           .createSession(request);
       LOG.info("Created Session: " + session.getName() + " with "
           + session.getInitialReadLocationsList().size() + " readers");
@@ -201,7 +195,7 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
     for (ReadLocation location : session.getInitialReadLocationsList()) {
       sources.add(new BigQueryV3TableSource(
           jsonTable, session, location, parseFn, coder,
-          this.bqServices, this.bqServicesV3, this.readOptions));
+          this.bqServices, this.readOptions));
     }
     return ImmutableList.copyOf(sources);
   }
@@ -217,7 +211,7 @@ class BigQueryV3TableSource<T> extends BigQueryV3SourceBase<T> {
       throws IOException {
     LOG.info("createReader called on " + initialReadLocation.toString());
     return BigQueryV3Reader.create(session, initialReadLocation, parseFn, coder,
-        this, this.bqServicesV3, options.as(GcpOptions.class));
+        this, this.bqServices, options.as(BigQueryOptions.class));
   }
 
   public Session getSession() {

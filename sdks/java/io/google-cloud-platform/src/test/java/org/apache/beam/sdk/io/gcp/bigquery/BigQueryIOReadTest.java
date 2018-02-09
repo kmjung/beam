@@ -892,8 +892,7 @@ public class BigQueryIOReadTest implements Serializable {
     fakeDatasetService.createTable(sometable);
 
     FakeBigQueryServices fakeBqServices = new FakeBigQueryServices()
-        .withDatasetService(fakeDatasetService);
-    FakeBigQueryServicesV3 fakeBqServicesV3 = new FakeBigQueryServicesV3()
+        .withDatasetService(fakeDatasetService)
         .withTableReadService(tableReadService);
 
     Pipeline p = TestPipeline.create(bqOptions);
@@ -901,9 +900,7 @@ public class BigQueryIOReadTest implements Serializable {
         BigQueryIO.readTableRowsV3()
             .from("non-executing-project:somedataset.sometable")
             .withTestServices(fakeBqServices)
-            .withTestServicesV3(fakeBqServicesV3)
             .withoutValidation();
-    System.out.println("Read:" + read.getBigQueryServicesV3());
     PCollection<KV<String, Integer>> output =
         p.apply(read)
             .apply(

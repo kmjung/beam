@@ -19,8 +19,6 @@ package org.apache.beam.sdk.io.gcp.bigquery;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import com.google.api.services.bigquery.model.TableRow;
-import com.google.cloud.bigquery.v3.ParallelRead;
 import com.google.cloud.bigquery.v3.ParallelRead.ReadLocation;
 import com.google.cloud.bigquery.v3.ParallelRead.ReadOptions;
 import com.google.cloud.bigquery.v3.ParallelRead.ReadRowsRequest;
@@ -29,16 +27,11 @@ import com.google.cloud.bigquery.v3.ParallelRead.Session;
 import com.google.cloud.bigquery.v3.RowOuterClass.Row;
 import java.io.IOException;
 import java.util.Iterator;
-import javax.annotation.Nullable;
-
 import org.apache.beam.sdk.coders.Coder;
-import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.transforms.SerializableFunction;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 
 /**
  * Iterates over all rows in a table.
@@ -48,14 +41,13 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
   private static final Logger LOG = LoggerFactory.getLogger(BigQueryV3Reader.class);
 
   private Session session;
-  private final BigQueryServicesV3 client;
-  private Iterator<TableRow> iteratorOverCurrentBatch;
+  private final BigQueryServices client;
   private Iterator<ReadRowsResponse> responseIterator;
   private Iterator<Row> rowIterator;
   private final ReadRowsRequest request;
   private SerializableFunction<SchemaAndRowProto, T> parseFn;
   private BoundedSource<T> source;
-  private GcpOptions options;
+  private BigQueryOptions options;
   Row currentRow;
 
   private BigQueryV3Reader(Session session,
@@ -64,8 +56,8 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
                            SerializableFunction<SchemaAndRowProto, T> parseFn,
                            Coder<T> coder,
                            BoundedSource<T> source,
-                           BigQueryServicesV3 client,
-                           GcpOptions options) {
+                           BigQueryServices client,
+                           BigQueryOptions options) {
     this.session = checkNotNull(session, "session");
     this.client = checkNotNull(client, "client");
     this.parseFn = checkNotNull(parseFn, "parseFn");
@@ -81,8 +73,8 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
                                             SerializableFunction<SchemaAndRowProto, T> parseFn,
                                             Coder<T> coder,
                                             BoundedSource<T> source,
-                                            BigQueryServicesV3 client,
-                                            GcpOptions options) {
+                                            BigQueryServices client,
+                                            BigQueryOptions options) {
     return new BigQueryV3Reader(session, location, 1000,
         parseFn, coder, source, client, options);
   }

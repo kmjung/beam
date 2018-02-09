@@ -34,7 +34,6 @@ import org.slf4j.LoggerFactory;
 abstract class BigQueryV3SourceBase<T> extends BoundedSource<T> {
   private static final Logger LOG = LoggerFactory.getLogger(BigQueryV3SourceBase.class);
   protected final BigQueryServices bqServices;
-  protected final BigQueryServicesV3 bqServicesV3;
 
   protected transient List<BoundedSource<T>> cachedSplitResult;
   protected SerializableFunction<SchemaAndRowProto, T> parseFn;
@@ -42,11 +41,9 @@ abstract class BigQueryV3SourceBase<T> extends BoundedSource<T> {
 
   BigQueryV3SourceBase(
       BigQueryServices bqServices,
-      BigQueryServicesV3 bqServicesV3,
       Coder<T> coder,
       SerializableFunction<SchemaAndRowProto, T> parseFn) {
     this.bqServices = checkNotNull(bqServices, "bqServices");
-    this.bqServicesV3 = checkNotNull(bqServicesV3, "bqServicesV3");
     this.coder = checkNotNull(coder, "coder");
     this.parseFn = checkNotNull(parseFn, "parseFn");
   }
@@ -64,9 +61,5 @@ abstract class BigQueryV3SourceBase<T> extends BoundedSource<T> {
   @Override
   public Coder<T> getOutputCoder() {
     return coder;
-  }
-
-  public BigQueryServicesV3 getBqServicesV3() {
-    return bqServicesV3;
   }
 }
