@@ -436,7 +436,6 @@ public class BigQueryIO {
         .setValidate(true)
         .setWithTemplateCompatibility(false)
         .setBigQueryServices(new BigQueryServicesImpl())
-        .setBigQueryServicesV3(new BigQueryServicesV3Impl())
         .setParseFnV3(parseFn)
         .setApiVersion(3)
         .build();
@@ -621,7 +620,6 @@ public class BigQueryIO {
       abstract Builder<T> setWithTemplateCompatibility(Boolean useTemplateCompatibility);
       abstract Builder<T> setBigQueryServices(BigQueryServices bigQueryServices);
       abstract Builder<T> setPriority(Priority priority);
-      abstract Builder<T> setBigQueryServicesV3(BigQueryServicesV3 bigQueryV3Services);
       // If value is set to 3, use BigQuery v3 API. Any other value will result in v2 read.
       abstract Builder<T> setApiVersion(Integer version);
       abstract Builder<T> setReadOptionsV3(ReadOptionsV3 options);
@@ -639,19 +637,13 @@ public class BigQueryIO {
     abstract boolean getValidate();
     @Nullable abstract Boolean getFlattenResults();
     @Nullable abstract Boolean getUseLegacySql();
-
     abstract Boolean getWithTemplateCompatibility();
-
     @Nullable abstract BigQueryServices getBigQueryServices();
-    @Nullable abstract BigQueryServicesV3 getBigQueryServicesV3();
     @Nullable abstract Integer getApiVersion();
     @Nullable abstract ReadOptionsV3 getReadOptionsV3();
-
     @Nullable abstract SerializableFunction<SchemaAndRecord, T> getParseFn();
     @Nullable abstract SerializableFunction<SchemaAndRowProto, T> getParseFnV3();
-
     @Nullable abstract Priority getPriority();
-
     @Nullable abstract Coder<T> getCoder();
 
     /**
@@ -704,7 +696,7 @@ public class BigQueryIO {
         if (getApiVersion() == 3) {
           source = BigQueryV3TableSource.create(
               getTableProvider(), getParseFnV3(), coder, getBigQueryServices(),
-              getBigQueryServicesV3(), getReadOptionsV3());
+              getReadOptionsV3());
         } else {
           source = BigQueryTableSource.create(
               jobUuid,
@@ -1067,11 +1059,6 @@ public class BigQueryIO {
     @VisibleForTesting
     TypedRead<T> withTestServices(BigQueryServices testServices) {
       return toBuilder().setBigQueryServices(testServices).build();
-    }
-
-    @VisibleForTesting
-    TypedRead<T> withTestServicesV3(BigQueryServicesV3 testServices) {
-      return toBuilder().setBigQueryServicesV3(testServices).build();
     }
   }
 
