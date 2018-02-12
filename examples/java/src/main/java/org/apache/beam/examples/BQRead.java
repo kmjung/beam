@@ -17,11 +17,14 @@
  */
 package org.apache.beam.examples;
 
-import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.coders.NullableCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
-import org.apache.beam.sdk.io.gcp.bigquery.*;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.ReadSessionOptions;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryOptions;
+import org.apache.beam.sdk.io.gcp.bigquery.SchemaAndRecord;
+import org.apache.beam.sdk.io.gcp.bigquery.SchemaAndRowProto;
 import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.apache.beam.sdk.options.Description;
 import org.apache.beam.sdk.options.PipelineOptions;
@@ -97,13 +100,13 @@ public class BQRead {
                 })
                 .from(DEFAULT_TABLE_REFERENCE)
                 .withCoder(NullableCoder.of(StringUtf8Coder.of()))
-                .withReadOptionsV3(BigQueryIO.ReadOptionsV3.builder()
+                .withReadSessionOptions(ReadSessionOptions.builder()
                     .addSelectedField("title")
                     .build()));
       } else if (options.getReadMode() == BQReadOptions.ReadMode.FILTER) {
         p.apply("ReadLinesV3Filter", BigQueryIO.readTableRowsV3()
             .from(DEFAULT_TABLE_REFERENCE)
-            .withReadOptionsV3(BigQueryIO.ReadOptionsV3.builder()
+            .withReadSessionOptions(ReadSessionOptions.builder()
                 .setSqlFilter("num_characters > 5000")
                 .build()));
       }

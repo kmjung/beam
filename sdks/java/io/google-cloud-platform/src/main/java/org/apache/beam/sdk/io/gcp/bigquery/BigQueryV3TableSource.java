@@ -34,6 +34,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.TableRefToJson;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.ReadSessionOptions;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.beam.sdk.options.ValueProvider.NestedValueProvider;
@@ -60,7 +61,7 @@ class BigQueryV3TableSource<T> extends BoundedSource<T> {
   private Session session;
   private ValueProvider<String> jsonTable;
   private ReadLocation initialReadLocation;
-  private BigQueryIO.ReadOptionsV3 readOptions;
+  private ReadSessionOptions readOptions;
   private transient List<BoundedSource<T>> cachedSplitResult;
 
   private BigQueryV3TableSource(ValueProvider<String> jsonTable,
@@ -69,7 +70,7 @@ class BigQueryV3TableSource<T> extends BoundedSource<T> {
                                 SerializableFunction<SchemaAndRowProto, T> parseFn,
                                 Coder<T> coder,
                                 BigQueryServices bqServices,
-                                BigQueryIO.ReadOptionsV3 readOptions) {
+                                ReadSessionOptions readOptions) {
     this.bqServices = checkNotNull(bqServices, "bqServices");
     this.coder = checkNotNull(coder, "coder");
     this.parseFn = checkNotNull(parseFn, "parseFn");
@@ -88,7 +89,7 @@ class BigQueryV3TableSource<T> extends BoundedSource<T> {
       SerializableFunction<SchemaAndRowProto, T> parseFn,
       Coder<T> coder,
       BigQueryServices bqServices,
-      BigQueryIO.ReadOptionsV3 readOptions) {
+      ReadSessionOptions readOptions) {
     return new BigQueryV3TableSource<>(
         NestedValueProvider.of(checkNotNull(table, "table"), new TableRefToJson()),
         null,
