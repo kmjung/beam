@@ -27,7 +27,6 @@ import com.google.cloud.bigquery.v3.ParallelRead.Session;
 import com.google.cloud.bigquery.v3.RowOuterClass.Row;
 import java.io.IOException;
 import java.util.Iterator;
-import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.slf4j.Logger;
@@ -48,35 +47,46 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
   private SerializableFunction<SchemaAndRowProto, T> parseFn;
   private BoundedSource<T> source;
   private BigQueryOptions options;
-  Row currentRow;
+  private Row currentRow;
 
-  private BigQueryV3Reader(Session session,
-                           ReadLocation location,
-                           int readBatch,
-                           SerializableFunction<SchemaAndRowProto, T> parseFn,
-                           Coder<T> coder,
-                           BoundedSource<T> source,
-                           BigQueryServices client,
-                           BigQueryOptions options) {
+  private BigQueryV3Reader(
+      Session session,
+      ReadLocation readLocation,
+      Integer rowBatchSize,
+      SerializableFunction<SchemaAndRowProto, T> parseFn,
+      BoundedSource<T> source,
+      BigQueryServices client,
+      BigQueryOptions options) {
     this.session = checkNotNull(session, "session");
     this.client = checkNotNull(client, "client");
     this.parseFn = checkNotNull(parseFn, "parseFn");
     this.source = checkNotNull(source, "source");
-    this.request = ReadRowsRequest.newBuilder()
-        .setReadLocation(location)
-        .setOptions(ReadOptions.newBuilder().setMaxRows(readBatch).build()).build();
     this.options = options;
+
+    ReadRowsRequest.Builder builder = ReadRowsRequest.newBuilder().setReadLocation(readLocation);
+    if (rowBatchSize != null) {
+      builder.setOptions(ReadOptions.newBuilder().setMaxRows(rowBatchSize).build());
+    }
+
+    this.request = builder.build();
   }
 
-  public static <T> BigQueryV3Reader create(Session session,
-                                            ReadLocation location,
-                                            SerializableFunction<SchemaAndRowProto, T> parseFn,
-                                            Coder<T> coder,
-                                            BoundedSource<T> source,
-                                            BigQueryServices client,
-                                            BigQueryOptions options) {
-    return new BigQueryV3Reader(session, location, 1000,
-        parseFn, coder, source, client, options);
+  public static <T> BigQueryV3Reader<T> create(
+      Session session,
+      ReadLocation initialReadLocation,
+      Integer rowBatchSize,
+      SerializableFunction<SchemaAndRowProto, T> parseFn,
+      BoundedSource<T> source,
+      BigQueryServices client,
+      BigQueryOptions options) {
+    return new BigQueryV3Reader<>(
+        session,
+        initialReadLocation,
+        rowBatchSize,
+        parseFn,
+        source,
+        client,
+        options);
   }
   /**
    * Empty operation, the table is already open for read.

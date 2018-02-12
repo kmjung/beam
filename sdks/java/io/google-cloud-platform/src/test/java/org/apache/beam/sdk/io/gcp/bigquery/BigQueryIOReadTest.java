@@ -40,7 +40,6 @@ import com.google.api.services.bigquery.model.TableSchema;
 import com.google.bigtable.v2.Mutation;
 import com.google.cloud.bigquery.v3.ParallelRead.CreateSessionRequest;
 import com.google.cloud.bigquery.v3.ParallelRead.ReadLocation;
-import com.google.cloud.bigquery.v3.ParallelRead.ReadOptions;
 import com.google.cloud.bigquery.v3.ParallelRead.ReadRowsRequest;
 import com.google.cloud.bigquery.v3.ParallelRead.ReadRowsResponse;
 import com.google.cloud.bigquery.v3.ParallelRead.Reader;
@@ -962,9 +961,8 @@ public class BigQueryIOReadTest implements Serializable {
         .addInitialReadLocations(location)
         .build();
 
-    ReadOptions options = ReadOptions.newBuilder().setMaxRows(1000).build();
-    ReadRowsRequest readRowsRequest = ReadRowsRequest.newBuilder().setReadLocation(location)
-        .setOptions(options).build();
+    ReadRowsRequest readRowsRequest =
+        ReadRowsRequest.newBuilder().setReadLocation(location).build();
     ReadLocation location2 = ReadLocation.newBuilder().setReader(reader).setToken("a").build();
 
     RowOuterClass.Row row1 =
