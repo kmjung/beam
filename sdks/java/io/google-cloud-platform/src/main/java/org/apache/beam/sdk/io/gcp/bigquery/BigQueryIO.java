@@ -280,22 +280,21 @@ public class BigQueryIO {
   private static final Logger LOG = LoggerFactory.getLogger(BigQueryIO.class);
 
   /**
-   * You can specify field selection and a limited set of filter pushdown when using
-   * BigQueryV3 read API.
+   * This class specifies options for a BigQuery parallel read session.
    */
   @AutoValue
-  public abstract static class ReadOptionsV3 implements Serializable {
+  public abstract static class ReadSessionOptions implements Serializable {
     @Nullable public abstract String getSqlFilter();
     public abstract ImmutableList<String> getSelectedFields();
     @Nullable public abstract Integer getRowBatchSize();
 
-    abstract ReadOptionsV3.Builder toBuilder();
+    abstract ReadSessionOptions.Builder toBuilder();
     public static Builder builder() {
-      return new AutoValue_BigQueryIO_ReadOptionsV3.Builder();
+      return new AutoValue_BigQueryIO_ReadSessionOptions.Builder();
     }
 
     /**
-     * Builder for {link ReadOptionsV3}.
+     * Builder for {link ReadSessionOptions}.
      */
     @AutoValue.Builder
     public abstract static class Builder {
@@ -309,7 +308,7 @@ public class BigQueryIO {
         return this;
       }
 
-      public abstract ReadOptionsV3 build();
+      public abstract ReadSessionOptions build();
     }
   }
 
@@ -413,7 +412,7 @@ public class BigQueryIO {
         .setWithTemplateCompatibility(false)
         .setBigQueryServices(new BigQueryServicesImpl())
         .setParseFn(parseFn)
-        .setApiVersion(2)
+        .setMethod(TypedRead.Method.GCS_EXPORT)
         .build();
   }
 
@@ -437,7 +436,7 @@ public class BigQueryIO {
         .setWithTemplateCompatibility(false)
         .setBigQueryServices(new BigQueryServicesImpl())
         .setParseFnV3(parseFn)
-        .setApiVersion(3)
+        .setMethod(TypedRead.Method.BQ_PARALLEL_READ)
         .build();
   }
 
@@ -608,7 +607,15 @@ public class BigQueryIO {
    */
   @AutoValue
   public abstract static class TypedRead<T> extends PTransform<PBegin, PCollection<T>> {
-    abstract Builder<T> toBuilder();
+
+    /**
+     * Specifies the method to be used when reading data from BigQuery.
+     */
+    enum Method {
+      DEFAULT,
+      GCS_EXPORT,
+      BQ_PARALLEL_READ,
+    }
 
     @AutoValue.Builder
     abstract static class Builder<T> {
@@ -619,9 +626,8 @@ public class BigQueryIO {
       abstract Builder<T> setUseLegacySql(Boolean useLegacySql);
       abstract Builder<T> setWithTemplateCompatibility(Boolean useTemplateCompatibility);
       abstract Builder<T> setBigQueryServices(BigQueryServices bigQueryServices);
-      // If value is set to 3, use BigQuery v3 API. Any other value will result in v2 read.
-      abstract Builder<T> setApiVersion(Integer version);
-      abstract Builder<T> setReadOptionsV3(ReadOptionsV3 options);
+      abstract Builder<T> setMethod(Method method);
+      abstract Builder<T> setReadSessionOptions(ReadSessionOptions options);
       abstract TypedRead<T> build();
 
       abstract Builder<T> setParseFn(
@@ -638,11 +644,13 @@ public class BigQueryIO {
     @Nullable abstract Boolean getUseLegacySql();
     abstract Boolean getWithTemplateCompatibility();
     @Nullable abstract BigQueryServices getBigQueryServices();
-    @Nullable abstract Integer getApiVersion();
-    @Nullable abstract ReadOptionsV3 getReadOptionsV3();
+    @Nullable abstract Method getMethod();
+    @Nullable abstract ReadSessionOptions getReadSessionOptions();
     @Nullable abstract SerializableFunction<SchemaAndRecord, T> getParseFn();
     @Nullable abstract SerializableFunction<SchemaAndRowProto, T> getParseFnV3();
     @Nullable abstract Coder<T> getCoder();
+
+    abstract Builder<T> toBuilder();
 
     @VisibleForTesting
     Coder<T> inferCoder(CoderRegistry coderRegistry) {
@@ -650,7 +658,7 @@ public class BigQueryIO {
         return getCoder();
       }
       try {
-        if (getApiVersion() == 3) {
+        if (getMethod() == Method.BQ_PARALLEL_READ) {
           return coderRegistry.getCoder(TypeDescriptors.outputOf(getParseFnV3()));
         } else {
           return coderRegistry.getCoder(TypeDescriptors.outputOf(getParseFn()));
@@ -665,10 +673,13 @@ public class BigQueryIO {
     private BoundedSource<T> createSource(String jobUuid, Coder<T> coder) {
       BoundedSource<T> source;
       if (getQuery() == null) {
-        if (getApiVersion() == 3) {
+        if (getMethod() == Method.BQ_PARALLEL_READ) {
           source = BigQueryV3TableSource.create(
-              getTableProvider(), getParseFnV3(), coder, getBigQueryServices(),
-              getReadOptionsV3());
+              getTableProvider(),
+              getParseFnV3(),
+              coder,
+              getBigQueryServices(),
+              getReadSessionOptions());
         } else {
           source = BigQueryTableSource.create(
               jobUuid,
@@ -678,18 +689,19 @@ public class BigQueryIO {
               getParseFn());
         }
       } else {
-        if (getApiVersion() == 3) {
+        if (getMethod() == Method.BQ_PARALLEL_READ) {
           throw new UnsupportedOperationException("Query using V3 API is not supported yet.");
+        } else {
+          source =
+              BigQueryQuerySource.create(
+                  jobUuid,
+                  getQuery(),
+                  getFlattenResults(),
+                  getUseLegacySql(),
+                  getBigQueryServices(),
+                  coder,
+                  getParseFn());
         }
-        source =
-            BigQueryQuerySource.create(
-                jobUuid,
-                getQuery(),
-                getFlattenResults(),
-                getUseLegacySql(),
-                getBigQueryServices(),
-                coder,
-                getParseFn());
       }
       return source;
     }
@@ -703,7 +715,7 @@ public class BigQueryIO {
       // Even if existence validation is disabled, we need to make sure that the BigQueryIO
       // read is properly specified.
       BigQueryOptions bqOptions = options.as(BigQueryOptions.class);
-      if (getApiVersion() != 3) {
+      if (getMethod() != Method.BQ_PARALLEL_READ) {
         String tempLocation = bqOptions.getTempLocation();
         checkArgument(
             !Strings.isNullOrEmpty(tempLocation),
@@ -789,7 +801,7 @@ public class BigQueryIO {
       Pipeline p = input.getPipeline();
       PCollection<T> rows;
       final Coder<T> coder = inferCoder(p.getCoderRegistry());
-      if (getApiVersion() == 3) {
+      if (getMethod() == Method.BQ_PARALLEL_READ) {
         checkArgument(getParseFnV3() != null, "A parseFnV3 is required");
         SerializableUtils.serializeToByteArray(createSource("", coder));
 
@@ -960,8 +972,8 @@ public class BigQueryIO {
       return toBuilder().setCoder(coder).build();
     }
 
-    public TypedRead<T> withReadOptionsV3(ReadOptionsV3 options) {
-      return toBuilder().setReadOptionsV3(options).build();
+    public TypedRead<T> withReadSessionOptions(ReadSessionOptions options) {
+      return toBuilder().setReadSessionOptions(options).build();
     }
 
     /** See {@link Read#from(String)}. */
