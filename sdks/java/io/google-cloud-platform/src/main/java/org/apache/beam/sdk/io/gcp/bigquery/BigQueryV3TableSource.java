@@ -100,11 +100,6 @@ class BigQueryV3TableSource<T> extends BoundedSource<T> {
         readOptions);
   }
 
-  public BigQueryV3TableSource<T> cloneWithLocation(ReadLocation readLocation) {
-    return new BigQueryV3TableSource<>(
-        jsonTable, session, readLocation, parseFn, coder, bqServices, readOptions);
-  }
-
   /*
    * Gets the total size of the table.
    */
@@ -182,8 +177,13 @@ class BigQueryV3TableSource<T> extends BoundedSource<T> {
     List<BoundedSource<T>> sources = Lists.newArrayList();
     for (ReadLocation location : session.getInitialReadLocationsList()) {
       sources.add(new BigQueryV3TableSource<>(
-          jsonTable, session, location, parseFn, coder,
-          this.bqServices, this.readOptions));
+          jsonTable,
+          session,
+          location,
+          parseFn,
+          coder,
+          bqServices,
+          readOptions));
     }
     return ImmutableList.copyOf(sources);
   }
@@ -193,8 +193,14 @@ class BigQueryV3TableSource<T> extends BoundedSource<T> {
    */
   @Override
   public BoundedReader<T> createReader(PipelineOptions options) {
-    return BigQueryV3Reader.create(session, initialReadLocation, parseFn, coder,
-        this, this.bqServices, options.as(BigQueryOptions.class));
+    return BigQueryV3Reader.create(
+        session,
+        initialReadLocation,
+        (readOptions != null) ? readOptions.getRowBatchSize() : null,
+        parseFn,
+        this,
+        bqServices,
+        options.as(BigQueryOptions.class));
   }
 
   @Override
