@@ -604,7 +604,7 @@ public class BigQueryIO {
 
   /**
    * Implementation of {@link BigQueryIO#read(SerializableFunction)} and
-   * {@link BigQueryIO#readV3(SerializableFunction, ReadOptionsV3)}.
+   * {@link BigQueryIO#readV3(SerializableFunction)}.
    */
   @AutoValue
   public abstract static class TypedRead<T> extends PTransform<PBegin, PCollection<T>> {
