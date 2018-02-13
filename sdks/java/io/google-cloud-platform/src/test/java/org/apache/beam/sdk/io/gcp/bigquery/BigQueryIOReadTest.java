@@ -64,6 +64,7 @@ import org.apache.beam.sdk.coders.VarIntCoder;
 import org.apache.beam.sdk.extensions.protobuf.ByteStringCoder;
 import org.apache.beam.sdk.extensions.protobuf.ProtoCoder;
 import org.apache.beam.sdk.io.BoundedSource;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.TableRowAvroParser;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.TypedRead;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
@@ -624,7 +625,7 @@ public class BigQueryIOReadTest implements Serializable {
         true /* useLegacySql */,
         fakeBqServices,
         TableRowJsonCoder.of(),
-        BigQueryIO.TableRowAvroParser.INSTANCE);
+        TableRowAvroParser.INSTANCE);
     options.setTempLocation(testFolder.getRoot().getAbsolutePath());
 
     TableReference queryTable = new TableReference()
@@ -702,7 +703,7 @@ public class BigQueryIOReadTest implements Serializable {
         true /* useLegacySql */,
         fakeBqServices,
         TableRowJsonCoder.of(),
-        BigQueryIO.TableRowAvroParser.INSTANCE);
+        TableRowAvroParser.INSTANCE);
 
     options.setTempLocation(testFolder.getRoot().getAbsolutePath());
 
