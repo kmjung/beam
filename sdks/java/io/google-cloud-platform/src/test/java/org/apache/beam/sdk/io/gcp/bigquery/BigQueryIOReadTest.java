@@ -64,6 +64,7 @@ import org.apache.beam.sdk.coders.VarIntCoder;
 import org.apache.beam.sdk.extensions.protobuf.ByteStringCoder;
 import org.apache.beam.sdk.extensions.protobuf.ProtoCoder;
 import org.apache.beam.sdk.io.BoundedSource;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.TableRowAvroParser;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.TypedRead;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
@@ -743,12 +744,8 @@ public class BigQueryIOReadTest implements Serializable {
         true /* useLegacySql */,
         fakeBqServices,
         TableRowJsonCoder.of(),
-<<<<<<< HEAD
-        BigQueryIO.TableRowParser.INSTANCE,
+        TableRowAvroParser.INSTANCE,
         BigQueryIO.TypedRead.Priority.BATCH);
-=======
-        BigQueryIO.TableRowAvroParser.INSTANCE);
->>>>>>> Add test change into new test file BigQueryIOReadTest.java and delete BigQueryIOTest.java
     options.setTempLocation(testFolder.getRoot().getAbsolutePath());
 
     TableReference queryTable = new TableReference()
@@ -826,7 +823,7 @@ public class BigQueryIOReadTest implements Serializable {
         true /* useLegacySql */,
         fakeBqServices,
         TableRowJsonCoder.of(),
-        BigQueryIO.TableRowParser.INSTANCE,
+        TableRowAvroParser.INSTANCE,
         BigQueryIO.TypedRead.Priority.BATCH);
 
     options.setTempLocation(testFolder.getRoot().getAbsolutePath());
