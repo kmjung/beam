@@ -47,12 +47,12 @@ import org.slf4j.LoggerFactory;
  *
  * <p>This source is to read Bigquery data directly using ParallelRead API.
  * <ul>
- * <li>{@link BigQueryV3TableSource} is for reading BigQuery tables</li>
+ * <li>{@link BigQueryParallelReadTableSource} is for reading BigQuery tables</li>
  * </ul>
  * ...
  */
-class BigQueryV3TableSource<T> extends BoundedSource<T> {
-  private static final Logger LOG = LoggerFactory.getLogger(BigQueryV3TableSource.class);
+class BigQueryParallelReadTableSource<T> extends BoundedSource<T> {
+  private static final Logger LOG = LoggerFactory.getLogger(BigQueryParallelReadTableSource.class);
 
   private BigQueryServices bqServices;
   private Coder<T> coder;
@@ -64,7 +64,7 @@ class BigQueryV3TableSource<T> extends BoundedSource<T> {
   private ReadSessionOptions readOptions;
   private transient List<BoundedSource<T>> cachedSplitResult;
 
-  private BigQueryV3TableSource(ValueProvider<String> jsonTable,
+  private BigQueryParallelReadTableSource(ValueProvider<String> jsonTable,
                                 Session session,
                                 ReadLocation readLocation,
                                 SerializableFunction<SchemaAndRowProto, T> parseFn,
@@ -82,15 +82,16 @@ class BigQueryV3TableSource<T> extends BoundedSource<T> {
   }
 
   /**
-   * Creation the initial {@link BigQueryV3TableSource}, with Session and ReadLocation to be null.
+   * This method creates a {@link BigQueryParallelReadTableSource} with no initial session or read
+   * location.
    */
-  public static <T> BigQueryV3TableSource<T> create(
+  public static <T> BigQueryParallelReadTableSource<T> create(
       ValueProvider<TableReference> table,
       SerializableFunction<SchemaAndRowProto, T> parseFn,
       Coder<T> coder,
       BigQueryServices bqServices,
       ReadSessionOptions readOptions) {
-    return new BigQueryV3TableSource<>(
+    return new BigQueryParallelReadTableSource<>(
         NestedValueProvider.of(checkNotNull(table, "table"), new TableRefToJson()),
         null,
         // First TableSource shouldn't be used to CreateReader.
@@ -164,20 +165,20 @@ class BigQueryV3TableSource<T> extends BoundedSource<T> {
       session = bqServices.getTableReadService(bqOptions).createSession(request);
       LOG.info("Created Session: " + session.getName() + " with "
           + session.getInitialReadLocationsList().size() + " readers");
-      cachedSplitResult = createV3Sources(jsonTable, session);
+      cachedSplitResult = createSources(jsonTable, session);
       return cachedSplitResult;
     }
     return cachedSplitResult;
   }
 
   /**
-   * Create {@link BigQueryV3TableSource} based on all the initial read locations in
+   * Create {@link BigQueryParallelReadTableSource} based on all the initial read locations in
    * {@link Session}.
    */
-  private List<BoundedSource<T>> createV3Sources(ValueProvider<String> jsonTable, Session session) {
+  private List<BoundedSource<T>> createSources(ValueProvider<String> jsonTable, Session session) {
     List<BoundedSource<T>> sources = Lists.newArrayList();
     for (ReadLocation location : session.getInitialReadLocationsList()) {
-      sources.add(new BigQueryV3TableSource<>(
+      sources.add(new BigQueryParallelReadTableSource<>(
           jsonTable,
           session,
           location,
@@ -194,7 +195,7 @@ class BigQueryV3TableSource<T> extends BoundedSource<T> {
    */
   @Override
   public BoundedReader<T> createReader(PipelineOptions options) {
-    return BigQueryV3Reader.create(
+    return BigQueryParallelReader.create(
         session,
         initialReadLocation,
         (readOptions != null) ? readOptions.getRowBatchSize() : null,

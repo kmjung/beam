@@ -22,6 +22,7 @@ import org.apache.beam.sdk.coders.NullableCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.ReadSessionOptions;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.TypedRead;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryOptions;
 import org.apache.beam.sdk.io.gcp.bigquery.SchemaAndRecord;
 import org.apache.beam.sdk.io.gcp.bigquery.SchemaAndRowProto;
@@ -88,11 +89,11 @@ public class BQRead {
     // TODO: Add some data validation on the results.
     if (options.getVersion() == 3) {
       if (options.getReadMode() == BQReadOptions.ReadMode.FULL) {
-        p.apply("ReadLinesV3", BigQueryIO.readTableRowsV3().from(
+        p.apply("ReadLinesV3", BigQueryIO.readTableRows(TypedRead.Method.BQ_PARALLEL_READ).from(
             DEFAULT_TABLE_REFERENCE));
       } else if (options.getReadMode() == BQReadOptions.ReadMode.FIELD_SELECTION) {
         p.apply("ReadLinesV3PartialRow",
-            BigQueryIO.readV3(
+            BigQueryIO.readRowProtoSource(
                 new SerializableFunction<SchemaAndRowProto, String>() {
                   public String apply(SchemaAndRowProto record) {
                     return (String) record.get("title");
@@ -104,7 +105,7 @@ public class BQRead {
                     .addSelectedField("title")
                     .build()));
       } else if (options.getReadMode() == BQReadOptions.ReadMode.FILTER) {
-        p.apply("ReadLinesV3Filter", BigQueryIO.readTableRowsV3()
+        p.apply("ReadLinesV3Filter", BigQueryIO.readTableRows(TypedRead.Method.BQ_PARALLEL_READ)
             .from(DEFAULT_TABLE_REFERENCE)
             .withReadSessionOptions(ReadSessionOptions.builder()
                 .setSqlFilter("num_characters > 5000")

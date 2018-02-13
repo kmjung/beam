@@ -35,9 +35,9 @@ import org.slf4j.LoggerFactory;
 /**
  * Iterates over all rows in a table.
  */
-class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
+class BigQueryParallelReader<T> extends BoundedSource.BoundedReader<T> {
 
-  private static final Logger LOG = LoggerFactory.getLogger(BigQueryV3Reader.class);
+  private static final Logger LOG = LoggerFactory.getLogger(BigQueryParallelReader.class);
 
   private Session session;
   private final BigQueryServices client;
@@ -49,7 +49,7 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
   private BigQueryOptions options;
   private Row currentRow;
 
-  private BigQueryV3Reader(
+  private BigQueryParallelReader(
       Session session,
       ReadLocation readLocation,
       Integer rowBatchSize,
@@ -71,7 +71,7 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
     this.request = builder.build();
   }
 
-  public static <T> BigQueryV3Reader<T> create(
+  public static <T> BigQueryParallelReader<T> create(
       Session session,
       ReadLocation initialReadLocation,
       Integer rowBatchSize,
@@ -79,7 +79,7 @@ class BigQueryV3Reader<T> extends BoundedSource.BoundedReader<T> {
       BoundedSource<T> source,
       BigQueryServices client,
       BigQueryOptions options) {
-    return new BigQueryV3Reader<>(
+    return new BigQueryParallelReader<>(
         session,
         initialReadLocation,
         rowBatchSize,
