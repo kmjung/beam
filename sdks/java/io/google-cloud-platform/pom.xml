@@ -186,10 +186,12 @@
       <groupId>com.google.apis</groupId>
       <artifactId>google-api-services-bigquery</artifactId>
     </dependency>
+
     <dependency>
       <groupId>com.google.api</groupId>
       <artifactId>gax-grpc</artifactId>
     </dependency>
+
     <dependency>
       <groupId>com.google.cloud</groupId>
       <artifactId>google-cloud-core-grpc</artifactId>
@@ -356,16 +358,19 @@
       <groupId>com.google.api.grpc</groupId>
       <artifactId>proto-google-common-protos</artifactId>
     </dependency>
-      <dependency>
-          <groupId>com.google.api</groupId>
-          <artifactId>gax</artifactId>
-          <version>1.15.0</version>
-      </dependency>
+
+    <dependency>
+        <groupId>com.google.api</groupId>
+        <artifactId>gax</artifactId>
+        <version>1.15.0</version>
+    </dependency>
+
     <dependency>
       <groupId>com.google.api</groupId>
       <artifactId>google-cloud-dev_bq_parallel_read</artifactId>
       <version>0.1.25</version>
     </dependency>
+
     <!--  Test dependencies -->
     <dependency>
       <groupId>org.apache.beam</groupId>
@@ -411,13 +416,15 @@
       <scope>test</scope>
     </dependency>
   </dependencies>
-<dependencyManagement>
+
+  <dependencyManagement>
     <dependencies>
-    <dependency>
+      <dependency>
         <groupId>com.google.api</groupId>
         <artifactId>gax</artifactId>
         <version>1.15.0</version>
-    </dependency>
+      </dependency>
     </dependencies>
-</dependencyManagement>
+  </dependencyManagement>
+
 </project>

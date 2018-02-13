@@ -25,11 +25,9 @@ import com.google.cloud.bigquery.v3.RowOuterClass;
 import com.google.cloud.bigquery.v3.RowOuterClass.Row;
 import com.google.cloud.bigquery.v3.RowOuterClass.StructType;
 import com.google.common.collect.ImmutableList;
-
 import java.util.Iterator;
 import java.util.List;
 import javax.annotation.Nullable;
-
 
 /**
  * A wrapper for a {@link Row} and the {@link StructType} representing the schema of the

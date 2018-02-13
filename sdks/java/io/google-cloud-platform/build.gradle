@@ -21,11 +21,6 @@ applyJavaNature(enableFindbugs: false)
 
 description = "Apache Beam :: SDKs :: Java :: IO :: Google Cloud Platform"
 
-repositories {
-  mavenLocal()
-  mavenCentral()
-}
-
 /*
  * We need to rely on manually specifying these evaluationDependsOn to ensure that
  * the following projects are evaluated before we evaluate this project. This is because
@@ -37,6 +32,7 @@ evaluationDependsOn(":sdks:java:extensions:google-cloud-platform-core")
 
 dependencies {
   compile library.java.guava
+  shadow group: 'com.google.api', name: 'google-cloud-dev_bq_parallel_read', version: '0.1.25'
   shadow project(path: ":sdks:java:core", configuration: "shadow")
   shadow project(path: ":sdks:java:extensions:google-cloud-platform-core", configuration: "shadow")
   shadow project(path: ":sdks:java:extensions:protobuf", configuration: "shadow")
@@ -80,5 +76,4 @@ dependencies {
   testCompile library.java.mockito_core
   testCompile library.java.junit
   testCompile library.java.slf4j_jdk14
-  compile 'com.google.api:google-cloud-dev_bq_parallel_read:0.1.25'
 }
