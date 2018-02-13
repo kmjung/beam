@@ -362,28 +362,34 @@ public class BigQueryIO {
   }
 
   /**
-   * Like {@link #read(SerializableFunction)} but represents each row as a {@link TableRow}.
-   *
-   * <p>This method is more convenient to use in some cases, but usually has significantly lower
-   * performance than using {@link #read(SerializableFunction)} directly to parse data into a
-   * domain-specific type, due to the overhead of converting the rows to {@link TableRow}.
    */
   public static TypedRead<TableRow> readTableRows() {
     return read(new TableRowAvroParser()).withCoder(TableRowJsonCoder.of());
   }
 
   /**
-   * Like {@link #readV3(SerializableFunction)} but represents each row as a {@link TableRow} using
-   * BigQuery v3.
+   * Like {@link #readAvroSource(SerializableFunction)} or
+   * {@link #readRowProtoSource(SerializableFunction)}, but represents each row as a
+   * {@link TableRow}.
    *
    * <p>This method is more convenient to use in some cases, but usually has significantly lower
-   * performance than using {@link #read(SerializableFunction)} directly to parse data into a
-   * domain-specific type, due to the overhead of converting the rows to {@link TableRow}.
-   *
-   * <p>TODO: Is there a way to add V3 reads without introducing a new method?
+   * performance than using {@link #read(SerializableFunction)} or
+   * {@link #readRowProtoSource(SerializableFunction)} directly to parse data into a domain-specific
+   * type due to the overhead of converting the rows to {@link TableRow} objects.
    */
-  public static TypedRead<TableRow> readTableRowsV3() {
-    return readV3(TableRowProtoParser.INSTANCE).withCoder(TableRowJsonCoder.of());
+  public static TypedRead<TableRow> readTableRows(TypedRead.Method method) {
+    if (method == TypedRead.Method.BQ_PARALLEL_READ) {
+      return readRowProtoSource(TableRowProtoParser.INSTANCE).withCoder(TableRowJsonCoder.of());
+    } else {
+      return read(new TableRowAvroParser()).withCoder(TableRowJsonCoder.of());
+    }
+  }
+
+  /**
+   * See {@link #readAvroSource(SerializableFunction)}.
+   */
+  public static <T> TypedRead<T> read(SerializableFunction<SchemaAndRecord, T> parseFn) {
+    return readAvroSource(parseFn);
   }
 
   /**
@@ -396,46 +402,56 @@ public class BigQueryIO {
    * sample parse function that parses click events from a table.
    *
    * <pre>{@code
-   * p.apply(BigQueryIO.read(new SerializableFunction<SchemaAndRecord, ClickEvent>() {
-   *   public Event apply(SchemaAndRecord record) {
-   *     GenericRecord r = record.getRecord();
-   *     return new Event((Long) r.get("userId"), (String) r.get("url"));
-   *   }
-   * }).from("...");
+   * p.apply(
+   *   BigQueryIO.readAvroSource(
+   *     new SerializableFunction<SchemaAndRecord, ClickEvent>() {
+   *       public Event apply(SchemaAndRecord record) {
+   *         GenericRecord r = record.getRecord();
+   *         return new Event((Long) r.get("userId"), (String) r.get("url"));
+   *       }
+   *     }).from("..."));
    * } </pre>
    *
    */
-  public static <T> TypedRead<T> read(
+  public static <T> TypedRead<T> readAvroSource(
       SerializableFunction<SchemaAndRecord, T> parseFn) {
     return new AutoValue_BigQueryIO_TypedRead.Builder<T>()
         .setValidate(true)
         .setWithTemplateCompatibility(false)
         .setBigQueryServices(new BigQueryServicesImpl())
-        .setParseFn(parseFn)
+        .setAvroParseFn(parseFn)
         .setMethod(TypedRead.Method.GCS_EXPORT)
         .build();
   }
 
   /**
-   * Using BigQueryV3 API to read rows.
+   * Reads from a BigQuery table using the BigQuery parallel read API and returns a
+   * {@link PCollection} with one element per each row of the table, parsed from the BigQuery
+   * {@link com.google.cloud.bigquery.v3.RowOuterClass.Row} format using the specified function.
+   *
+   * <p>Each {@link SchemaAndRowProto} contains a BigQuery
+   * {@link com.google.cloud.bigquery.v3.RowOuterClass.StructType} representing the table schema
+   * and a {@link com.google.cloud.bigquery.v3.RowOuterClass.Row} representing the row, indexed by
+   * column name. Here is a sample parse function that parses click events from a table.
+   *
    * <pre>{@code
-   * p.apply(BigQueryIO.readV3(new SerializableFunction<SchemaAndRowProto, ClickEvent>() {
-   *   public Event apply(SchemaAndRowProto row) {
-   *     return new Event((Long) row.get("userId"), (String) row.get("url"));
-   *   }
-   * }).from("...");
+   * p.apply(
+   *   BigQueryIO.readRowProtoSource(
+   *     new SerializableFunction<SchemaAndRowProto, ClickEvent>() {
+   *       public Event apply(SchemaAndRowProto row) {
+   *         return new Event((Long) row.get("userId"), (String) row.get("url"));
+   *       }
+   *     }).from("..."));
    * }</pre>
-   * @param parseFn
-   * @param <T>
-   * @return
+   *
    */
-  public static <T> TypedRead<T> readV3(
+  public static <T> TypedRead<T> readRowProtoSource(
       SerializableFunction<SchemaAndRowProto, T> parseFn) {
     return new AutoValue_BigQueryIO_TypedRead.Builder<T>()
         .setValidate(true)
         .setWithTemplateCompatibility(false)
         .setBigQueryServices(new BigQueryServicesImpl())
-        .setParseFnV3(parseFn)
+        .setRowProtoParseFn(parseFn)
         .setMethod(TypedRead.Method.BQ_PARALLEL_READ)
         .build();
   }
@@ -603,7 +619,7 @@ public class BigQueryIO {
 
   /**
    * Implementation of {@link BigQueryIO#read(SerializableFunction)} and
-   * {@link BigQueryIO#readV3(SerializableFunction)}.
+   * {@link BigQueryIO#readRowProtoSource(SerializableFunction)}.
    */
   @AutoValue
   public abstract static class TypedRead<T> extends PTransform<PBegin, PCollection<T>> {
@@ -611,7 +627,7 @@ public class BigQueryIO {
     /**
      * Specifies the method to be used when reading data from BigQuery.
      */
-    enum Method {
+    public enum Method {
       DEFAULT,
       GCS_EXPORT,
       BQ_PARALLEL_READ,
@@ -628,13 +644,10 @@ public class BigQueryIO {
       abstract Builder<T> setBigQueryServices(BigQueryServices bigQueryServices);
       abstract Builder<T> setMethod(Method method);
       abstract Builder<T> setReadSessionOptions(ReadSessionOptions options);
-      abstract TypedRead<T> build();
-
-      abstract Builder<T> setParseFn(
-          SerializableFunction<SchemaAndRecord, T> parseFn);
-      abstract Builder<T> setParseFnV3(
-          SerializableFunction<SchemaAndRowProto, T> parseFn);
+      abstract Builder<T> setAvroParseFn(SerializableFunction<SchemaAndRecord, T> parseFn);
+      abstract Builder<T> setRowProtoParseFn(SerializableFunction<SchemaAndRowProto, T> parseFn);
       abstract Builder<T> setCoder(Coder<T> coder);
+      abstract TypedRead<T> build();
     }
 
     @Nullable abstract ValueProvider<String> getJsonTableRef();
@@ -643,11 +656,11 @@ public class BigQueryIO {
     @Nullable abstract Boolean getFlattenResults();
     @Nullable abstract Boolean getUseLegacySql();
     abstract Boolean getWithTemplateCompatibility();
-    @Nullable abstract BigQueryServices getBigQueryServices();
-    @Nullable abstract Method getMethod();
+    abstract BigQueryServices getBigQueryServices();
+    abstract Method getMethod();
     @Nullable abstract ReadSessionOptions getReadSessionOptions();
-    @Nullable abstract SerializableFunction<SchemaAndRecord, T> getParseFn();
-    @Nullable abstract SerializableFunction<SchemaAndRowProto, T> getParseFnV3();
+    @Nullable abstract SerializableFunction<SchemaAndRecord, T> getAvroParseFn();
+    @Nullable abstract SerializableFunction<SchemaAndRowProto, T> getRowProtoParseFn();
     @Nullable abstract Coder<T> getCoder();
 
     abstract Builder<T> toBuilder();
@@ -659,9 +672,9 @@ public class BigQueryIO {
       }
       try {
         if (getMethod() == Method.BQ_PARALLEL_READ) {
-          return coderRegistry.getCoder(TypeDescriptors.outputOf(getParseFnV3()));
+          return coderRegistry.getCoder(TypeDescriptors.outputOf(getRowProtoParseFn()));
         } else {
-          return coderRegistry.getCoder(TypeDescriptors.outputOf(getParseFn()));
+          return coderRegistry.getCoder(TypeDescriptors.outputOf(getAvroParseFn()));
         }
       } catch (CannotProvideCoderException e) {
         throw new IllegalArgumentException(
@@ -674,9 +687,9 @@ public class BigQueryIO {
       BoundedSource<T> source;
       if (getQuery() == null) {
         if (getMethod() == Method.BQ_PARALLEL_READ) {
-          source = BigQueryV3TableSource.create(
+          source = BigQueryParallelReadTableSource.create(
               getTableProvider(),
-              getParseFnV3(),
+              getRowProtoParseFn(),
               coder,
               getBigQueryServices(),
               getReadSessionOptions());
@@ -686,7 +699,7 @@ public class BigQueryIO {
               getTableProvider(),
               getBigQueryServices(),
               coder,
-              getParseFn());
+              getAvroParseFn());
         }
       } else {
         if (getMethod() == Method.BQ_PARALLEL_READ) {
@@ -700,7 +713,7 @@ public class BigQueryIO {
                   getUseLegacySql(),
                   getBigQueryServices(),
                   coder,
-                  getParseFn());
+                  getAvroParseFn());
         }
       }
       return source;
@@ -772,6 +785,33 @@ public class BigQueryIO {
     public PCollection<T> expand(PBegin input) {
       ValueProvider<TableReference> table = getTableProvider();
 
+      if (getMethod() == Method.BQ_PARALLEL_READ) {
+        checkArgument(
+            getTable() != null,
+            "Invalid BigQueryIO.Read: Table is required when using Method.BQ_PARALLEL_READ");
+        checkArgument(
+            getRowProtoParseFn() != null,
+            "Invalid BigQueryIO.Read: A row proto parseFn is required when using"
+                + " TypedRead.Method.BQ_PARALLEL_READ");
+        checkArgument(
+            getAvroParseFn() == null,
+            "Invalid BigQueryIO.Read: Specifies an Avro parseFn, which only applies when using"
+                + " TypedRead.Method.GCS_EXPORT");
+      } else {
+        checkArgument(
+            getReadSessionOptions() == null,
+            "Invalid BigQueryIO.Read: Specifies read session options, which only apply when using"
+                + " TypedRead.Method.BQ_PARALLEL_READ");
+        checkArgument(
+            getAvroParseFn() != null,
+            "Invalid BigQueryIO.Read: An Avro parseFn is required when using"
+                + " TypedRead.Method.GCS_EXPORT");
+        checkArgument(
+            getRowProtoParseFn() == null,
+            "Invalid BigQueryIO.Read: Specifies a row proto parseFn, which only applies when using"
+                + " TypedRead.Method.BQ_PARALLEL_READ");
+      }
+
       if (table != null) {
         checkArgument(getQuery() == null,
             "from() and fromQuery() are exclusive");
@@ -798,18 +838,15 @@ public class BigQueryIO {
         checkArgument(getUseLegacySql() != null,
             "useLegacySql should not be null if query is set");
       }
+
       Pipeline p = input.getPipeline();
-      PCollection<T> rows;
       final Coder<T> coder = inferCoder(p.getCoderRegistry());
       if (getMethod() == Method.BQ_PARALLEL_READ) {
-        checkArgument(getParseFnV3() != null, "A parseFnV3 is required");
         SerializableUtils.serializeToByteArray(createSource("", coder));
-
-        return p.apply("ReadV3",
-            org.apache.beam.sdk.io.Read.from(createSource("", coder)));
+        return p.apply(org.apache.beam.sdk.io.Read.from(createSource("", coder)));
       }
-      checkArgument(getParseFn() != null, "A parseFn is required");
 
+      PCollection<T> rows;
       final PCollectionView<String> jobIdTokenView;
       PCollection<String> jobIdTokenCollection;
       if (!getWithTemplateCompatibility()) {

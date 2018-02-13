@@ -64,6 +64,7 @@ import org.apache.beam.sdk.coders.VarIntCoder;
 import org.apache.beam.sdk.extensions.protobuf.ByteStringCoder;
 import org.apache.beam.sdk.extensions.protobuf.ProtoCoder;
 import org.apache.beam.sdk.io.BoundedSource;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.TypedRead;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.ValueProvider;
@@ -797,7 +798,8 @@ public class BigQueryIOReadTest implements Serializable {
         BigQueryIO.read(parseFn).inferCoder(CoderRegistry.createDefault()));
   }
 
-  private void testReadFromTableV3() throws IOException, InterruptedException {
+  @Test
+  public void testReadFromParallelReadTableSource() throws IOException, InterruptedException {
 
     TableReferenceProto.TableReference tableReference =
         TableReferenceProto.TableReference.newBuilder()
@@ -895,7 +897,7 @@ public class BigQueryIOReadTest implements Serializable {
 
     Pipeline p = TestPipeline.create(bqOptions);
     BigQueryIO.TypedRead<TableRow> read =
-        BigQueryIO.readTableRowsV3()
+        BigQueryIO.readTableRows(TypedRead.Method.BQ_PARALLEL_READ)
             .from("non-executing-project:somedataset.sometable")
             .withTestServices(fakeBqServices)
             .withoutValidation();
@@ -920,10 +922,5 @@ public class BigQueryIOReadTest implements Serializable {
     PAssert.that(output)
         .containsInAnyOrder(ImmutableList.of(KV.of("a", 1), KV.of("b", 2), KV.of("c", 3)));
     p.run();
-  }
-
-  @Test
-  public void testReadTableRowsV3() throws IOException, InterruptedException {
-    testReadFromTableV3();
   }
 }
