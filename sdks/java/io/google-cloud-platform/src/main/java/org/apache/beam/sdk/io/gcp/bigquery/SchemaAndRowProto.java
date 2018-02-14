@@ -18,21 +18,20 @@
 package org.apache.beam.sdk.io.gcp.bigquery;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Preconditions.checkState;
 
 import com.google.api.services.bigquery.model.TableRow;
-import com.google.cloud.bigquery.v3.RowOuterClass;
 import com.google.cloud.bigquery.v3.RowOuterClass.Row;
+import com.google.cloud.bigquery.v3.RowOuterClass.StructField;
 import com.google.cloud.bigquery.v3.RowOuterClass.StructType;
-import com.google.common.collect.ImmutableList;
-import java.util.Iterator;
-import java.util.List;
+import com.google.cloud.bigquery.v3.RowOuterClass.StructValue;
+import com.google.cloud.bigquery.v3.RowOuterClass.TypeKind;
+import com.google.cloud.bigquery.v3.RowOuterClass.Value;
+import com.google.cloud.bigquery.v3.RowOuterClass.Value.ValueCase;
 import javax.annotation.Nullable;
 
 /**
  * A wrapper for a {@link Row} and the {@link StructType} representing the schema of the
- * table it was generated from.
- * Also provides function to read the data out.
+ * table it was generated from. Also provides utility methods to extract data.
  */
 public class SchemaAndRowProto {
   private final StructType tableSchema;
@@ -53,78 +52,46 @@ public class SchemaAndRowProto {
   }
 
   /**
-   * Gets a field value based on field name.
-   * Note: The implementation of this function will convert the entire row to {@link TableRow}
-   * and use the field name to get the value out of TableRow, based on the assumption that the
-   * most efficient way of accessing the subset of fields is to pass down the Field Selections
-   * to the read API.
-   *
-   * @param fieldName
-   * @return
-   */
-  public Object get(String fieldName) {
-    TableRow currentRow = getTableRow();
-    String[] subFieldNames = fieldName.split(".");
-    for (int i = 0; i < subFieldNames.length; i++) {
-      if (i == subFieldNames.length - 1) {
-        return currentRow.get(subFieldNames[i]);
-      } else {
-        // If there are further nested levels, the current field should contain a TableRow.
-        currentRow = (TableRow) (currentRow.get(subFieldNames[i]));
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Converts a {@class Row} that returned from ParallelRead API to {@class TableRow}
-   * which is a map of {fieldname, value} to be consumed by Data Flow API.
-   */
-  public TableRow getTableRow() {
-    if (tableRow != null) {
-      return tableRow;
-    }
-    tableRow = new TableRow();
-    List<RowOuterClass.Value> rowFields = row.getValue().getFieldsList();
-
-    checkState(rowFields.size() == tableSchema.getFieldsCount(),
-        "Expected that the row has the same number of cells %s as"
-            + " fields in the schema %s",
-        rowFields.size(), tableSchema.getFieldsCount());
-
-    for (int i = 0; i < tableSchema.getFieldsCount(); i++) {
-      // Convert the object in this cell to the Java type corresponding to its type in the schema.
-      Object convertedValue =
-          getFieldValue(tableSchema.getFields(i).getFieldType(), rowFields.get(i));
-
-      String fieldName = tableSchema.getFields(i).getFieldName();
-
-      if (convertedValue == null) {
-        // BigQuery does not include null values when the export operation (to JSON) is used.
-        // To match that behavior, BigQueryTableRowiterator, and the DirectPipelineRunner,
-        // intentionally omits columns with null values.
-        continue;
-      }
-
-      tableRow.set(fieldName, convertedValue);
-    }
-    return tableRow;
-  }
-
-  /**
-   * Convert parallel read field value {@link RowOuterClass.Value} into a object.
+   * Gets the value of the specified (possibly nested) field or null if it can't be found.
    */
   @Nullable
-  private Object getFieldValue(RowOuterClass.Type fieldType, RowOuterClass.Value fieldValue) {
-    // TODO: This check always evaluates to true, and so it breaks parsing.
-    // What's the right way to handle null values?
-    /*
-    if (fieldValue.getNullValue() == RowOuterClass.NullValue.NULL_VALUE) {
+  public Object get(String fieldName) {
+    String[] subFieldNames = fieldName.split("\\.");
+    StructType structType = tableSchema;
+    StructValue structValue = row.getValue();
+
+    for (int i = 0; i < subFieldNames.length - 1; i++) {
+      int fieldIndex = getFieldIndex(structType, subFieldNames[i]);
+      if (fieldIndex == -1) {
+        return null;
+      }
+      StructField structField = structType.getFields(fieldIndex);
+      if (structField.getFieldType().getTypeKind() != TypeKind.TYPE_STRUCT) {
+        return null;
+      }
+
+      Value fieldValue = structValue.getFields(fieldIndex);
+      if (fieldValue.getValueCase() == ValueCase.NULL_VALUE) {
+        return null;
+      }
+
+      structType = structField.getFieldType().getStructType();
+      structValue = fieldValue.getStructValue();
+    }
+
+    String leafFieldName = subFieldNames[subFieldNames.length - 1];
+    int fieldIndex = getFieldIndex(structType, leafFieldName);
+    if (fieldIndex == -1) {
       return null;
     }
-    */
 
-    switch (fieldType.getTypeKind()) {
+    StructField leafField = structType.getFields(fieldIndex);
+    Value fieldValue = structValue.getFields(fieldIndex);
+    if (fieldValue.getValueCase() == ValueCase.NULL_VALUE) {
+      return null;
+    }
+
+    switch (leafField.getFieldType().getTypeKind()) {
       case TYPE_INT64:
         return fieldValue.getInt64Value();
       case TYPE_BOOL:
@@ -138,29 +105,27 @@ public class SchemaAndRowProto {
       case TYPE_TIMESTAMP:
         return fieldValue.getTimestampValue();
       case TYPE_DATE:
-        return java.util.Date.parse(fieldValue.getStringValue());
+        return fieldValue.getStringValue();
       case TYPE_TIME:
-        // TODO: How to parse time?
-        return org.joda.time.DateTime.parse(fieldValue.getStringValue());
+        return fieldValue.getStringValue();
       case TYPE_DATETIME:
-        return org.joda.time.DateTime.parse(fieldValue.getStringValue());
+        return fieldValue.getStringValue();
       case TYPE_ARRAY:
-        ImmutableList.Builder<Object> values = ImmutableList.builder();
-        for (RowOuterClass.Value element : fieldValue.getArrayValue().getElementsList()) {
-          values.add(getFieldValue(fieldType.getArrayType(), element));
-        }
-        return values.build();
+        return fieldValue.getArrayValue();
       case TYPE_STRUCT:
-        TableRow fields = new TableRow();
-        Iterator<RowOuterClass.Value> structFieldIterator =
-            fieldValue.getStructValue().getFieldsList().iterator();
-        for (RowOuterClass.StructField field : fieldType.getStructType().getFieldsList()) {
-          fields.set(field.getFieldName(),
-              getFieldValue(field.getFieldType(), structFieldIterator.next()));
-        }
-        return fields;
+        return fieldValue.getStructValue();
       default:
-        throw new UnsupportedOperationException("Not type for " + fieldType.getTypeKind());
+        return null;
     }
+  }
+
+  private int getFieldIndex(StructType structType, String fieldName) {
+    for (int i = 0; i < structType.getFieldsCount(); i++) {
+      StructField field = structType.getFields(i);
+      if (field.getFieldName().equals(fieldName)) {
+        return i;
+      }
+    }
+    return -1;
   }
 }
