@@ -93,7 +93,7 @@ public class BQRead {
             DEFAULT_TABLE_REFERENCE));
       } else if (options.getReadMode() == BQReadOptions.ReadMode.FIELD_SELECTION) {
         p.apply("ReadLinesV3PartialRow",
-            BigQueryIO.readRowProtoSource(
+            BigQueryIO.readViaRowProto(
                 new SerializableFunction<SchemaAndRowProto, String>() {
                   public String apply(SchemaAndRowProto record) {
                     return (String) record.get("title");

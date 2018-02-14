@@ -33,7 +33,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Iterates over all rows in a table.
+ * Iterates over all rows assigned to a particular reader in a read session.
  */
 class BigQueryParallelReader<T> extends BoundedSource.BoundedReader<T> {
 
@@ -49,7 +49,7 @@ class BigQueryParallelReader<T> extends BoundedSource.BoundedReader<T> {
   private BigQueryOptions options;
   private Row currentRow;
 
-  private BigQueryParallelReader(
+  BigQueryParallelReader(
       Session session,
       ReadLocation readLocation,
       Integer rowBatchSize,
@@ -71,23 +71,6 @@ class BigQueryParallelReader<T> extends BoundedSource.BoundedReader<T> {
     this.request = builder.build();
   }
 
-  public static <T> BigQueryParallelReader<T> create(
-      Session session,
-      ReadLocation initialReadLocation,
-      Integer rowBatchSize,
-      SerializableFunction<SchemaAndRowProto, T> parseFn,
-      BoundedSource<T> source,
-      BigQueryServices client,
-      BigQueryOptions options) {
-    return new BigQueryParallelReader<>(
-        session,
-        initialReadLocation,
-        rowBatchSize,
-        parseFn,
-        source,
-        client,
-        options);
-  }
   /**
    * Empty operation, the table is already open for read.
    * @throws IOException on failure
@@ -95,14 +78,7 @@ class BigQueryParallelReader<T> extends BoundedSource.BoundedReader<T> {
   @Override
   public boolean start() throws IOException {
     responseIterator = client.getTableReadService(options).readRows(request);
-    if (responseIterator != null && responseIterator.hasNext()) {
-      rowIterator = responseIterator.next().getRowsList().iterator();
-      if (rowIterator.hasNext()) {
-        currentRow = rowIterator.next();
-        return true;
-      }
-    }
-    return false;
+    return advance();
   }
 
   @Override
@@ -137,7 +113,7 @@ class BigQueryParallelReader<T> extends BoundedSource.BoundedReader<T> {
 
   @Override
   public void close() {
-    // How to close a stream from client?
+    // Do nothing.
   }
 
   @Override
