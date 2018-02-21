@@ -200,7 +200,9 @@ class BigQueryParallelReadTableSource<T> extends BoundedSource<T> {
     return new BigQueryParallelReader<>(
         session,
         initialReadLocation,
-        (readOptions != null) ? readOptions.getRowBatchSize() : null,
+        (readOptions != null && readOptions.getRowBatchSize() != null)
+            ? readOptions.getRowBatchSize()
+            : 1000,
         parseFn,
         this,
         bqServices,

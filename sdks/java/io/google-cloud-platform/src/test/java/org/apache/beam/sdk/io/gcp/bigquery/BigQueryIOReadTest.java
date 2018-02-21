@@ -1154,7 +1154,8 @@ public class BigQueryIOReadTest implements Serializable {
   public void testReadFromRowProtoTableSourceWithSqlFilterAndSelectedFields() throws Exception {
     ReadSessionOptions readSessionOptions = ReadSessionOptions.builder()
         .setSqlFilter("dummy filter")
-        .addSelectedField("field1").addSelectedField("field2")
+        .addSelectedField("field1")
+        .addSelectedField("field2")
         .build();
     CreateSessionRequest createSessionRequest = getDefaultCreateSessionRequestBuilder()
         .setReadOptions(TableReadOptions.newBuilder()
@@ -1166,9 +1167,9 @@ public class BigQueryIOReadTest implements Serializable {
 
   @Test
   public void testReadFromRowProtoTableSourceWithBatchSize() throws Exception {
-    ReadSessionOptions readSessionOptions = ReadSessionOptions.builder().setRowBatchSize(1000)
+    ReadSessionOptions readSessionOptions = ReadSessionOptions.builder().setRowBatchSize(2000)
         .build();
-    ReadRowsRequest readRowsRequest = new ReadRowsRequestBuilder().withMaxRows(1000).build();
+    ReadRowsRequest readRowsRequest = new ReadRowsRequestBuilder().withMaxRows(2000).build();
     doReadFromParallelReadTableSource(readSessionOptions, null, readRowsRequest);
   }
 
@@ -1198,7 +1199,7 @@ public class BigQueryIOReadTest implements Serializable {
     }
 
     if (readRowsRequest == null) {
-      readRowsRequest = new ReadRowsRequestBuilder().build();
+      readRowsRequest = new ReadRowsRequestBuilder().withMaxRows(1000).build();
     }
 
     Reader reader = Reader.newBuilder().setName("default reader").build();
