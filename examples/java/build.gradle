@@ -50,7 +50,6 @@ dependencies {
   shadow project(path: ":sdks:java:core", configuration: "shadow")
   shadow project(path: ":sdks:java:extensions:google-cloud-platform-core", configuration: "shadow")
   shadow project(path: ":sdks:java:io:google-cloud-platform", configuration: "shadow")
-  shadow group: 'com.google.api', name: 'google-cloud-dev_bq_parallel_read', version: '0.1.25'
   shadow library.java.google_api_client
   shadow library.java.google_api_services_bigquery
   shadow library.java.findbugs_jsr305
