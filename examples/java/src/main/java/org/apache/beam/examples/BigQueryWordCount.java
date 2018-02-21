@@ -244,9 +244,6 @@ public class BigQueryWordCount {
               .apply("Read table rows from BigQuery storage",
                   BigQueryIO.readViaRowProto(parseRowProtoFn)
                       .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
-                      .withReadSessionOptions(ReadSessionOptions.builder()
-                          .setRowBatchSize(1000)
-                          .build())
                       .from(DEFAULT_TABLE_REFERENCE))
               .apply("Filter edits to small articles",
                   ParDo.of(new FilterSmallPagesFn()));
@@ -262,7 +259,6 @@ public class BigQueryWordCount {
                   BigQueryIO.readViaRowProto(parseRowProtoFn)
                       .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
                       .withReadSessionOptions(ReadSessionOptions.builder()
-                          .setRowBatchSize(1000)
                           .addSelectedField(NUM_CHARACTERS_FIELD_NAME)
                           .addSelectedField(CONTRIBUTOR_USERNAME_FIELD_NAME)
                           .addSelectedField(CONTRIBUTOR_IP_FIELD_NAME)
@@ -282,7 +278,6 @@ public class BigQueryWordCount {
                   BigQueryIO.readViaRowProto(parseRowProtoFn)
                       .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
                       .withReadSessionOptions(ReadSessionOptions.builder()
-                          .setRowBatchSize(1000)
                           .setSqlFilter(NUM_CHARACTERS_FIELD_NAME + " > 5000")
                           .build())
                       .from(DEFAULT_TABLE_REFERENCE));
@@ -298,7 +293,6 @@ public class BigQueryWordCount {
                   BigQueryIO.readViaRowProto(parseRowProtoFn)
                       .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
                       .withReadSessionOptions(ReadSessionOptions.builder()
-                          .setRowBatchSize(1000)
                           .setSqlFilter(NUM_CHARACTERS_FIELD_NAME + " > 5000")
                           .addSelectedField(NUM_CHARACTERS_FIELD_NAME)
                           .addSelectedField(CONTRIBUTOR_USERNAME_FIELD_NAME)

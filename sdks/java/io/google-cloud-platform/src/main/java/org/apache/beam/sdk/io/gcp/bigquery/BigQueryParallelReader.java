@@ -63,12 +63,11 @@ class BigQueryParallelReader<T> extends BoundedSource.BoundedReader<T> {
     this.source = checkNotNull(source, "source");
     this.options = options;
 
-    ReadRowsRequest.Builder builder = ReadRowsRequest.newBuilder().setReadLocation(readLocation);
-    if (rowBatchSize != null) {
-      builder.setOptions(ReadOptions.newBuilder().setMaxRows(rowBatchSize).build());
-    }
-
-    this.request = builder.build();
+    this.request = ReadRowsRequest.newBuilder()
+        .setReadLocation(readLocation)
+        .setOptions(ReadOptions.newBuilder()
+            .setMaxRows(checkNotNull(rowBatchSize, "rowBatchSize")))
+        .build();
   }
 
   /**
