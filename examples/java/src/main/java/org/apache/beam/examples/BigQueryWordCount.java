@@ -78,6 +78,20 @@ public class BigQueryWordCount {
   private static final String CONTRIBUTOR_USERNAME_FIELD_NAME = "contributor_username";
   private static final String CONTRIBUTOR_IP_FIELD_NAME = "contributor_ip";
 
+  private static final String PROJECTION_QUERY_STRING = "#standardSQL\n"
+      + "SELECT num_characters, contributor_username, contributor_ip\n"
+      + "FROM `bigquery-public-data.samples.wikipedia`";
+
+  private static final String FILTER_QUERY_STRING = "#standardSQL\n"
+      + "SELECT *\n"
+      + "FROM `bigquery-public-data.samples.wikipedia'\n"
+      + "WHERE num_characters > 5000";
+
+  private static final String FILTER_PROJECTION_QUERY_STRING = "#standardSQL\n"
+      + "SELECT num_characters, contributor_username, contributor_ip\n"
+      + "FROM `bigquery-public-data.samples.wikipedia`\n"
+      + "WHERE num_characters > 5000";
+
   /**
    * A class representing the interesting fields from an entry in the Wikipedia edit table. In
    * practice, this is usually a user-defined or domain-specific proto object.
@@ -251,8 +265,13 @@ public class BigQueryWordCount {
         break;
       case READ_COLUMNS:
         if (options.getReadMode() == ReadMode.GCS_EXPORT) {
-          throw new UnsupportedOperationException(
-              "GCS export does not support column selection");
+          editRecords = pipeline
+              .apply("Run projection query, export results to GCS, and read rows",
+                  BigQueryIO.read(parseRecordFn)
+                      .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
+                      .fromQuery(PROJECTION_QUERY_STRING)
+                      .usingStandardSql())
+              .apply("Filter edits to small articles", ParDo.of(new FilterSmallPagesFn()));
         } else {
           editRecords = pipeline
               .apply("Read table rows from BigQuery storage with column selection",
@@ -270,8 +289,12 @@ public class BigQueryWordCount {
         break;
       case READ_FULL_ROWS_AND_FILTER:
         if (options.getReadMode() == ReadMode.GCS_EXPORT) {
-          throw new UnsupportedOperationException(
-              "GCS export does not support push-down filtering");
+          editRecords = pipeline
+              .apply("Run filtering query, export results to GCS, and read rows",
+                  BigQueryIO.read(parseRecordFn)
+                      .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
+                      .fromQuery(FILTER_QUERY_STRING)
+                      .usingStandardSql());
         } else {
           editRecords = pipeline
               .apply("Read table rows from BigQuery storage with push-down filtering",
@@ -285,8 +308,12 @@ public class BigQueryWordCount {
         break;
       case READ_COLUMNS_AND_FILTER:
         if (options.getReadMode() == ReadMode.GCS_EXPORT) {
-          throw new UnsupportedOperationException(
-              "GCS export does not support column selection or push-down filtering");
+          editRecords = pipeline
+              .apply("Run projection and filtering query, export results to GCS, and read rows",
+                  BigQueryIO.read(parseRecordFn)
+                      .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
+                      .fromQuery(FILTER_PROJECTION_QUERY_STRING)
+                      .usingStandardSql());
         } else {
           editRecords = pipeline
               .apply("Read table rows from BigQuery storage with column selection and filtering",
