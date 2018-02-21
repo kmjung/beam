@@ -519,12 +519,6 @@
       <artifactId>junit</artifactId>
     </dependency>
 
-    <dependency>
-      <groupId>com.google.api</groupId>
-      <artifactId>google-cloud-dev_bq_parallel_read</artifactId>
-      <version>0.1.25</version>
-    </dependency>
-
     <!-- Test dependencies -->
     <!--
       For testing the example itself, use the direct runner. This is separate from
