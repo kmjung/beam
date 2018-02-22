@@ -826,7 +826,9 @@ public class BigQueryIOReadTest implements Serializable {
         .setTableReference(TableReferenceProto.TableReference.newBuilder()
             .setProjectId("foo.com:someproject")
             .setDatasetId("somedataset")
-            .setTableId("sometable")).build();
+            .setTableId("sometable"))
+        .setReaderCount(1024)
+        .build();
 
     RowOuterClass.StructType structType = RowOuterClass.StructType.newBuilder()
         .addFields(RowOuterClass.StructField.newBuilder()
@@ -852,24 +854,39 @@ public class BigQueryIOReadTest implements Serializable {
     FakeTableReadService fakeTableReadService = new FakeTableReadService()
         .withCreateSessionResult(request, session);
 
+    TableSchema tableSchema = new TableSchema().setFields(ImmutableList.of(
+        new TableFieldSchema().setName("name").setType("STRING"),
+        new TableFieldSchema().setName("number").setType("INTEGER")));
+
     TableReference tableReference = new TableReference()
         .setProjectId("foo.com:someproject")
         .setDatasetId("somedataset")
         .setTableId("sometable");
+
+    Table table = new Table()
+        .setTableReference(tableReference)
+        .setSchema(tableSchema)
+        .setNumBytes(1024L * 1024L);
+
+    FakeDatasetService fakeDatasetService = new FakeDatasetService();
+    fakeDatasetService.createDataset("foo.com:someproject", "somedataset", "", "", null);
+    fakeDatasetService.createTable(table);
 
     BigQueryParallelReadTableSource<TableRow> tableSource =
         BigQueryParallelReadTableSource.create(
             ValueProvider.StaticValueProvider.of(tableReference),
             TableRowProtoParser.INSTANCE,
             TableRowJsonCoder.of(),
-            new FakeBigQueryServices().withTableReadService(fakeTableReadService),
+            new FakeBigQueryServices()
+                .withTableReadService(fakeTableReadService)
+                .withDatasetService(fakeDatasetService),
             null);
 
     BigQueryOptions bqOptions = PipelineOptionsFactory.create().as(BigQueryOptions.class);
-    List<BoundedSource<TableRow>> sources = tableSource.split(100, bqOptions);
+    List<BoundedSource<TableRow>> sources = tableSource.split(1024, bqOptions);
     assertEquals(50, sources.size());
-    sources = tableSource.split(20, bqOptions);
-    assertEquals(50, sources.size());
+    long expectedSizeBytes = 1024L * 1024L / 50;
+    assertEquals(expectedSizeBytes, sources.get(0).getEstimatedSizeBytes(bqOptions));
   }
 
   @Test
@@ -979,7 +996,9 @@ public class BigQueryIOReadTest implements Serializable {
             .setDatasetId("somedataset")
             .setTableId("sometable");
 
-    return CreateSessionRequest.newBuilder().setTableReference(tableReference);
+    return CreateSessionRequest.newBuilder()
+        .setTableReference(tableReference)
+        .setReaderCount(12);
   }
 
   static class ReadRowsRequestBuilder {
