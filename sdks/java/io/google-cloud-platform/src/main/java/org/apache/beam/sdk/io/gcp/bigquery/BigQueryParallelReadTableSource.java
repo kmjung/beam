@@ -25,12 +25,12 @@ import com.google.api.services.bigquery.model.TableReference;
 import com.google.cloud.bigquery.v3.ParallelRead.CreateSessionRequest;
 import com.google.cloud.bigquery.v3.ParallelRead.ReadLocation;
 import com.google.cloud.bigquery.v3.ParallelRead.Session;
-import com.google.cloud.bigquery.v3.ReadOptions;
 import com.google.cloud.bigquery.v3.ReadOptions.TableReadOptions;
 import com.google.cloud.bigquery.v3.TableReferenceProto;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.io.BoundedSource;
@@ -40,155 +40,149 @@ import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.beam.sdk.options.ValueProvider.NestedValueProvider;
 import org.apache.beam.sdk.transforms.SerializableFunction;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * A {@link BoundedSource} for reading BigQuery tables using the BigQuery parallel read API.
  */
 class BigQueryParallelReadTableSource<T> extends BoundedSource<T> {
-  private static final Logger LOG = LoggerFactory.getLogger(BigQueryParallelReadTableSource.class);
 
-  private final BigQueryServices bqServices;
-  private final Coder<T> coder;
+  private final ValueProvider<String> jsonTableRefProvider;
   private final SerializableFunction<SchemaAndRowProto, T> parseFn;
-  private final Session session;
-  private final ValueProvider<String> jsonTable;
-  private final ReadLocation initialReadLocation;
-  private final ReadSessionOptions readOptions;
+  private final Coder<T> coder;
+  private final BigQueryServices bqServices;
+  private final Session readSession;
+  private final ReadLocation readLocation;
+  private final ReadSessionOptions readSessionOptions;
+  private final Long readSizeBytes;
 
-  private transient Long tableSizeBytes;
-  private transient List<BoundedSource<T>> cachedSplitResult;
-
-  private BigQueryParallelReadTableSource(
-      ValueProvider<String> jsonTable,
-      Session session,
-      ReadLocation readLocation,
-      SerializableFunction<SchemaAndRowProto, T> parseFn,
-      Coder<T> coder,
-      BigQueryServices bqServices,
-      ReadSessionOptions readOptions) {
-    this.bqServices = checkNotNull(bqServices, "bqServices");
-    this.coder = checkNotNull(coder, "coder");
-    this.parseFn = checkNotNull(parseFn, "parseFn");
-    this.jsonTable = checkNotNull(jsonTable, "jsonTable");
-    this.session = session;
-    this.initialReadLocation = readLocation;
-    this.readOptions = readOptions;
-  }
+  private transient Long cachedReadSizeBytes;
 
   /**
-   * This method creates a {@link BigQueryParallelReadTableSource} with no initial session or read
-   * location.
+   * This method creates a new {@link BigQueryParallelReadTableSource} with no initial read session
+   * or read location.
    */
   public static <T> BigQueryParallelReadTableSource<T> create(
-      ValueProvider<TableReference> table,
+      ValueProvider<TableReference> tableRefProvider,
       SerializableFunction<SchemaAndRowProto, T> parseFn,
       Coder<T> coder,
       BigQueryServices bqServices,
-      ReadSessionOptions readOptions) {
+      ReadSessionOptions readSessionOptions) {
     return new BigQueryParallelReadTableSource<>(
-        NestedValueProvider.of(checkNotNull(table, "table"), new TableRefToJson()),
-        null,
-        null,
+        NestedValueProvider.of(
+            checkNotNull(tableRefProvider, "tableRefProvider"),
+            new TableRefToJson()),
         parseFn,
         coder,
-        checkNotNull(bqServices),
-        readOptions);
+        bqServices,
+        readSessionOptions,
+        null,
+        null,
+        null);
   }
 
-  /*
-   * Gets the total size of the table.
-   */
-  @Override
-  public synchronized long getEstimatedSizeBytes(PipelineOptions options) throws Exception {
-    if (tableSizeBytes == null) {
-      TableReference table =
-          BigQueryIO.JSON_FACTORY.fromString(jsonTable.get(), TableReference.class);
-      Table tableRef = bqServices.getDatasetService(options.as(BigQueryOptions.class))
-          .getTable(table);
-      tableSizeBytes = tableRef.getNumBytes();
-    }
-    return tableSizeBytes;
-  }
-
-  private static TableReferenceProto.TableReference
-  convertTableReferenceToV3(TableReference tableReference) {
-    return TableReferenceProto.TableReference.newBuilder()
-        .setProjectId(tableReference.getProjectId())
-        .setDatasetId(tableReference.getDatasetId())
-        .setTableId(tableReference.getTableId())
-        .build();
-  }
-
-  /**
-   * Creates a read session with the number of readers based on size estimation. This is
-   * only for the initial split when job is created. If the caller wants to split more, they will
-   * call Split function on the reader.
-   */
-  @Override
-  public List<BoundedSource<T>> split(
-      long desiredBundleSizeBytes, PipelineOptions options) throws Exception {
-    BigQueryOptions bqOptions = options.as(BigQueryOptions.class);
-    if (cachedSplitResult == null) {
-      ReadOptions.TableReadOptions tableReadOptions = null;
-      if (readOptions != null) {
-        TableReadOptions.Builder builder = null;
-        String sqlFilter = readOptions.getSqlFilter();
-        if (!Strings.isNullOrEmpty(sqlFilter)) {
-          if (builder == null) {
-            builder = TableReadOptions.newBuilder();
-          }
-          builder.setSqlFilter(sqlFilter);
-        }
-
-        List<String> selectedFields = readOptions.getSelectedFields();
-        if (selectedFields != null && !selectedFields.isEmpty()) {
-          if (builder == null) {
-            builder = TableReadOptions.newBuilder();
-          }
-          for (String selectedField : selectedFields) {
-            builder.addSelectedFields(selectedField);
-          }
-        }
-
-        if (builder != null) {
-          tableReadOptions = builder.build();
-        }
-      }
-
-      // If the reader count is not set, then the server will return the maximum number of initial
-      // read locations.
-      CreateSessionRequest.Builder builder = CreateSessionRequest.newBuilder();
-      builder.setTableReference(convertTableReferenceToV3(
-          BigQueryIO.JSON_FACTORY.fromString(jsonTable.get(), TableReference.class)));
-      if (tableReadOptions != null) {
-        builder.setReadOptions(tableReadOptions);
-      }
-
-      CreateSessionRequest request = builder.build();
-      Session session = bqServices.getTableReadService(bqOptions).createSession(request);
-      cachedSplitResult = createSources(jsonTable, session);
-    }
-    return cachedSplitResult;
+  private BigQueryParallelReadTableSource(
+      ValueProvider<String> jsonTableRefProvider,
+      SerializableFunction<SchemaAndRowProto, T> parseFn,
+      Coder<T> coder,
+      BigQueryServices bqServices,
+      ReadSessionOptions readSessionOptions,
+      Session readSession,
+      ReadLocation readLocation,
+      Long readSizeBytes) {
+    this.jsonTableRefProvider = checkNotNull(jsonTableRefProvider, "jsonTableRefProvider");
+    this.parseFn = checkNotNull(parseFn, "parseFn");
+    this.coder = checkNotNull(coder, "coder");
+    this.bqServices = checkNotNull(bqServices, "bqServices");
+    this.readSessionOptions = readSessionOptions;
+    this.readSession = readSession;
+    this.readLocation = readLocation;
+    this.readSizeBytes = readSizeBytes;
   }
 
   /**
-   * Create {@link BigQueryParallelReadTableSource} based on all the initial read locations in
-   * {@link Session}.
+   * Gets the estimated number of bytes returned by the current source. For sources created by a
+   * split() operation, this is a fraction of the total table size.
    */
-  private List<BoundedSource<T>> createSources(ValueProvider<String> jsonTable, Session session) {
-    List<BoundedSource<T>> sources = Lists.newArrayList();
-    for (ReadLocation location : session.getInitialReadLocationsList()) {
+  @Override
+  public synchronized long getEstimatedSizeBytes(PipelineOptions options)
+      throws IOException, InterruptedException {
+    if (readSizeBytes != null) {
+      return readSizeBytes;
+    }
+
+    if (cachedReadSizeBytes == null) {
+      TableReference tableReference = BigQueryIO.JSON_FACTORY.fromString(
+          jsonTableRefProvider.get(), TableReference.class);
+      Table table = bqServices.getDatasetService(options.as(BigQueryOptions.class))
+          .getTable(tableReference);
+      cachedReadSizeBytes = table.getNumBytes();
+    }
+
+    return cachedReadSizeBytes;
+  }
+
+  @Override
+  public List<BoundedSource<T>> split(long desiredBundleSizeBytes, PipelineOptions options)
+      throws IOException, InterruptedException {
+    if (readSession != null) {
+      return ImmutableList.of(this);
+    }
+
+    CreateSessionRequest.Builder requestBuilder = CreateSessionRequest.newBuilder();
+    TableReference tableReference = BigQueryIO.JSON_FACTORY.fromString(
+        jsonTableRefProvider.get(), TableReference.class);
+    requestBuilder.setTableReference(
+        TableReferenceProto.TableReference.newBuilder()
+            .setProjectId(tableReference.getProjectId())
+            .setDatasetId(tableReference.getDatasetId())
+            .setTableId(tableReference.getTableId()));
+
+    Long tableSizeBytes = getEstimatedSizeBytes(options);
+    requestBuilder.setReaderCount(
+        (tableSizeBytes / desiredBundleSizeBytes) > Integer.MAX_VALUE
+            ? Integer.MAX_VALUE
+            : (int) (tableSizeBytes / desiredBundleSizeBytes));
+
+    if (readSessionOptions != null) {
+      TableReadOptions.Builder readOptionsBuilder = null;
+      String sqlFilter = readSessionOptions.getSqlFilter();
+      if (!Strings.isNullOrEmpty(sqlFilter)) {
+        readOptionsBuilder = TableReadOptions.newBuilder().setSqlFilter(sqlFilter);
+      }
+
+      List<String> selectedFields = readSessionOptions.getSelectedFields();
+      if (selectedFields != null && !selectedFields.isEmpty()) {
+        if (readOptionsBuilder == null) {
+          readOptionsBuilder = TableReadOptions.newBuilder();
+        }
+        for (String selectedField : selectedFields) {
+          readOptionsBuilder.addSelectedFields(selectedField);
+        }
+      }
+
+      if (readOptionsBuilder != null) {
+        requestBuilder.setReadOptions(readOptionsBuilder);
+      }
+    }
+
+    CreateSessionRequest createSessionRequest = requestBuilder.build();
+    Session session = bqServices.getTableReadService(options.as(BigQueryOptions.class))
+        .createSession(createSessionRequest);
+
+    Long readSizeBytes = tableSizeBytes / session.getInitialReadLocationsCount();
+    List<BoundedSource<T>> sources = new ArrayList<>(session.getInitialReadLocationsCount());
+    for (ReadLocation readLocation : session.getInitialReadLocationsList()) {
       sources.add(new BigQueryParallelReadTableSource<>(
-          jsonTable,
-          session,
-          location,
+          jsonTableRefProvider,
           parseFn,
           coder,
           bqServices,
-          readOptions));
+          readSessionOptions,
+          session,
+          readLocation,
+          readSizeBytes));
     }
+
     return ImmutableList.copyOf(sources);
   }
 
@@ -198,10 +192,10 @@ class BigQueryParallelReadTableSource<T> extends BoundedSource<T> {
   @Override
   public BoundedReader<T> createReader(PipelineOptions options) {
     return new BigQueryParallelReader<>(
-        session,
-        initialReadLocation,
-        (readOptions != null && readOptions.getRowBatchSize() != null)
-            ? readOptions.getRowBatchSize()
+        readSession,
+        readLocation,
+        (readSessionOptions != null && readSessionOptions.getRowBatchSize() != null)
+            ? readSessionOptions.getRowBatchSize()
             : 1000,
         parseFn,
         this,
