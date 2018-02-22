@@ -81,25 +81,16 @@ class BigQueryParallelReader<T> extends BoundedSource.BoundedReader<T> {
   }
 
   @Override
-  public boolean advance() throws IOException {
-    if (responseIterator == null) {
-      throw new IOException("start() needs to be called first");
-    }
-    if (rowIterator != null && rowIterator.hasNext()) {
-      currentRow = rowIterator.next();
-      return true;
-    }
+  public boolean advance() {
     if (rowIterator == null || !rowIterator.hasNext()) {
-      if (responseIterator.hasNext()) {
-        rowIterator = responseIterator.next().getRowsList().iterator();
-        if (rowIterator.hasNext()) {
-          currentRow = rowIterator.next();
-          return true;
-        }
+      if (!responseIterator.hasNext()) {
+        currentRow = null;
+        return false;
       }
+      rowIterator = responseIterator.next().getRowsList().iterator();
     }
-    currentRow = null;
-    return false;
+    currentRow = rowIterator.next();
+    return true;
   }
 
   @Override

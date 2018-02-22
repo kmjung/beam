@@ -680,8 +680,7 @@ public class BigQueryIO {
       /**
        * Export data to Google Cloud Storage in Avro format and read data from that location. This
        * option can be used to read from existing BigQuery tables and to read the results of
-       * queries, and requires that callers specify a temporary Google Cloud Storage bucket to
-       * store the exported data.
+       * queries.
        */
       GCS_EXPORT,
 
@@ -802,7 +801,8 @@ public class BigQueryIO {
       if (getMethod() == Method.BQ_PARALLEL_READ) {
         checkArgument(
             getTable() != null,
-            "Invalid BigQueryIO.Read: Table is required when using Method.BQ_PARALLEL_READ");
+            "Invalid BigQueryIO.Read: Table is required when using"
+                + " TypedRead.Method.BQ_PARALLEL_READ");
         checkArgument(
             getRowProtoParseFn() != null,
             "Invalid BigQueryIO.Read: A row proto parseFn is required when using"
