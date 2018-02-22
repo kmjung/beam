@@ -26,6 +26,7 @@ import com.google.api.client.util.BackOff;
 import com.google.api.client.util.BackOffUtils;
 import com.google.api.client.util.ExponentialBackOff;
 import com.google.api.client.util.Sleeper;
+import com.google.api.gax.core.FixedCredentialsProvider;
 import com.google.api.services.bigquery.Bigquery;
 import com.google.api.services.bigquery.model.Dataset;
 import com.google.api.services.bigquery.model.DatasetReference;
@@ -850,7 +851,7 @@ class BigQueryServicesImpl implements BigQueryServices {
 
     private TableReadServiceImpl(BigQueryOptions options) throws IOException {
       ParallelReadServiceSettings settings = ParallelReadServiceSettings.newBuilder()
-          .setCredentialsProvider(new GcpCredentialsProvider(options))
+          .setCredentialsProvider(FixedCredentialsProvider.create(options.getGcpCredential()))
           .build();
       this.client = ParallelReadServiceClient.create(settings);
     }

@@ -46,6 +46,20 @@ import org.apache.beam.sdk.transforms.SerializableFunction;
  */
 class BigQueryParallelReadTableSource<T> extends BoundedSource<T> {
 
+  /**
+   * The maximum number of readers which will be requested when creating a BigQuery read session as
+   * part of a split operation, regardless of the desired bundle size.
+   */
+  private static final int MAX_SPLIT_COUNT = 10000;
+
+  /**
+   * The minimum number of readers which will be requested when creating a BigQuery read session as
+   * part of a split operation, regardless of the desired bundle size. Note that the source may
+   * still be split into fewer than ten component sources depending on the number of read locations
+   * returned by the server at session creation time.
+   */
+  private static final int MIN_SPLIT_COUNT = 10;
+
   private final ValueProvider<String> jsonTableRefProvider;
   private final SerializableFunction<SchemaAndRowProto, T> parseFn;
   private final Coder<T> coder;
@@ -137,11 +151,19 @@ class BigQueryParallelReadTableSource<T> extends BoundedSource<T> {
             .setDatasetId(tableReference.getDatasetId())
             .setTableId(tableReference.getTableId()));
 
-    Long tableSizeBytes = getEstimatedSizeBytes(options);
-    requestBuilder.setReaderCount(
-        (tableSizeBytes / desiredBundleSizeBytes) > Integer.MAX_VALUE
-            ? Integer.MAX_VALUE
-            : (int) (tableSizeBytes / desiredBundleSizeBytes));
+    long tableSizeBytes = getEstimatedSizeBytes(options);
+    int readerCount = 0;
+    if (desiredBundleSizeBytes > 0) {
+      readerCount = (tableSizeBytes / desiredBundleSizeBytes) > MAX_SPLIT_COUNT
+          ? MAX_SPLIT_COUNT
+          : (int) (tableSizeBytes / desiredBundleSizeBytes);
+    }
+
+    if (readerCount < MIN_SPLIT_COUNT) {
+      readerCount = MIN_SPLIT_COUNT;
+    }
+
+    requestBuilder.setReaderCount(readerCount);
 
     if (readSessionOptions != null) {
       TableReadOptions.Builder readOptionsBuilder = null;

@@ -38,16 +38,6 @@ import com.google.api.services.bigquery.model.TableReference;
 import com.google.api.services.bigquery.model.TableRow;
 import com.google.api.services.bigquery.model.TableSchema;
 import com.google.bigtable.v2.Mutation;
-import com.google.cloud.bigquery.v3.ParallelRead.CreateSessionRequest;
-import com.google.cloud.bigquery.v3.ParallelRead.ReadLocation;
-import com.google.cloud.bigquery.v3.ParallelRead.ReadOptions;
-import com.google.cloud.bigquery.v3.ParallelRead.ReadRowsRequest;
-import com.google.cloud.bigquery.v3.ParallelRead.ReadRowsResponse;
-import com.google.cloud.bigquery.v3.ParallelRead.Reader;
-import com.google.cloud.bigquery.v3.ParallelRead.Session;
-import com.google.cloud.bigquery.v3.ReadOptions.TableReadOptions;
-import com.google.cloud.bigquery.v3.RowOuterClass;
-import com.google.cloud.bigquery.v3.TableReferenceProto;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
@@ -55,10 +45,8 @@ import com.google.protobuf.ByteString;
 import java.io.IOException;
 import java.io.Serializable;
 import java.math.BigInteger;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.coders.CoderRegistry;
 import org.apache.beam.sdk.coders.KvCoder;
 import org.apache.beam.sdk.coders.VarIntCoder;
@@ -66,8 +54,6 @@ import org.apache.beam.sdk.extensions.protobuf.ByteStringCoder;
 import org.apache.beam.sdk.extensions.protobuf.ProtoCoder;
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.ReadSessionOptions;
-import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.TableRowProtoParser;
-import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.TypedRead.Method;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.ValueProvider;
@@ -79,6 +65,7 @@ import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.SerializableFunction;
+import org.apache.beam.sdk.transforms.SerializableFunctions;
 import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.sdk.transforms.display.DisplayData;
 import org.apache.beam.sdk.transforms.display.DisplayDataEvaluator;
@@ -147,11 +134,6 @@ public class BigQueryIOReadTest implements Serializable {
     checkReadQueryObjectWithValidate(read, query, true);
   }
 
-  private void checkTypedReadTableObject(
-      BigQueryIO.TypedRead typedRead, String project, String dataset, String table) {
-    checkTypedReadTableObjectWithValidate(typedRead, project, dataset, table, true);
-  }
-
   private void checkReadTableObjectWithValidate(
       BigQueryIO.Read read, String project, String dataset, String table, boolean validate) {
     assertEquals(project, read.getTable().getProjectId());
@@ -166,17 +148,6 @@ public class BigQueryIOReadTest implements Serializable {
     assertNull(read.getTable());
     assertEquals(query, read.getQuery().get());
     assertEquals(validate, read.getValidate());
-  }
-
-  private void checkTypedReadTableObjectWithValidate(
-      BigQueryIO.TypedRead typedRead, String project, String dataset, String table,
-      boolean validate) {
-    assertEquals(project, typedRead.getTable().getProjectId());
-    assertEquals(dataset, typedRead.getTable().getDatasetId());
-    assertEquals(table, typedRead.getTable().getTableId());
-    assertNull(typedRead.getQuery());
-    assertEquals(validate, typedRead.getValidate());
-    assertEquals(typedRead.getMethod(), Method.BQ_PARALLEL_READ);
   }
 
   @Before
@@ -196,21 +167,6 @@ public class BigQueryIOReadTest implements Serializable {
   public void testBuildQueryBasedSource() {
     BigQueryIO.Read read = BigQueryIO.read().fromQuery("foo_query");
     checkReadQueryObject(read, "foo_query");
-  }
-
-  private static SerializableFunction<SchemaAndRowProto, SchemaAndRowProto> rowProtoIdentityFn =
-      new SerializableFunction<SchemaAndRowProto, SchemaAndRowProto>() {
-        @Override
-        public SchemaAndRowProto apply(SchemaAndRowProto input) {
-          return input;
-        }
-      };
-
-  @Test
-  public void testBuildReadRowProtoSource() {
-    BigQueryIO.TypedRead typedRead = BigQueryIO.readViaRowProto(rowProtoIdentityFn)
-        .from("foo.com:project:somedataset.sometable");
-    checkTypedReadTableObject(typedRead, "foo.com:project", "somedataset", "sometable");
   }
 
   @Test
@@ -233,25 +189,10 @@ public class BigQueryIOReadTest implements Serializable {
   }
 
   @Test
-  public void testBuildRowProtoSourceWithoutValidation() {
-    BigQueryIO.TypedRead typedRead = BigQueryIO.readViaRowProto(rowProtoIdentityFn)
-        .from("foo.com:project:somedataset.sometable").withoutValidation();
-    checkTypedReadTableObjectWithValidate(typedRead, "foo.com:project", "somedataset", "sometable",
-        false);
-  }
-
-  @Test
   public void testBuildTableBasedSourceWithDefaultProject() {
     BigQueryIO.Read read =
         BigQueryIO.read().from("somedataset.sometable");
     checkReadTableObject(read, null, "somedataset", "sometable");
-  }
-
-  @Test
-  public void testBuildRowProtoSourceWithDefaultProject() {
-    BigQueryIO.TypedRead typedRead = BigQueryIO.readViaRowProto(rowProtoIdentityFn)
-        .from("somedataset.sometable");
-    checkTypedReadTableObject(typedRead, null, "somedataset", "sometable");
   }
 
   @Test
@@ -262,17 +203,6 @@ public class BigQueryIOReadTest implements Serializable {
         .setTableId("sometable");
     BigQueryIO.Read read = BigQueryIO.read().from(table);
     checkReadTableObject(read, "foo.com:project", "somedataset", "sometable");
-  }
-
-  @Test
-  public void testBuildRowProtoSourceWithTableReference() {
-    TableReference tableReference = new TableReference()
-        .setProjectId("foo.com:project")
-        .setDatasetId("somedataset")
-        .setTableId("sometable");
-    BigQueryIO.TypedRead typedRead = BigQueryIO.readViaRowProto(rowProtoIdentityFn)
-        .from(tableReference);
-    checkTypedReadTableObject(typedRead, "foo.com:project", "somedataset", "sometable");
   }
 
   @Test
@@ -357,6 +287,18 @@ public class BigQueryIOReadTest implements Serializable {
         BigQueryIO.read()
             .from("foo.com:project:somedataset.sometable")
             .usingStandardSql());
+    p.run();
+  }
+
+  @Test
+  public void testBuildSourceWithReadSessionOptions() {
+    thrown.expect(IllegalArgumentException.class);
+    thrown.expectMessage(
+        "Invalid BigQueryIO.Read: Specifies read session options, which only apply when using"
+            + " TypedRead.Method.BQ_PARALLEL_READ");
+    p.apply(BigQueryIO.read(SerializableFunctions.identity())
+        .from("foo.com:project:somedataset.sometable")
+        .withReadSessionOptions(ReadSessionOptions.builder().build()));
     p.run();
   }
 
@@ -632,51 +574,6 @@ public class BigQueryIOReadTest implements Serializable {
   }
 
   @Test
-  public void testRowProtoSourceEstimatedSize() throws Exception {
-    doTestRowProtoSourceEstimatedSize(false);
-  }
-
-  @Test
-  public void testRowProtoSourceEstimatedSizeStreamingBufferIgnored() throws Exception {
-    doTestRowProtoSourceEstimatedSize(true);
-  }
-
-  private void doTestRowProtoSourceEstimatedSize(boolean useStreamingBuffer) throws Exception {
-    List<TableRow> data = ImmutableList.of(
-        new TableRow().set("name", "a").set("number", 1L),
-        new TableRow().set("name", "b").set("number", 2L),
-        new TableRow().set("name", "c").set("number", 3L),
-        new TableRow().set("name", "d").set("number", 4L),
-        new TableRow().set("name", "e").set("number", 5L),
-        new TableRow().set("name", "f").set("number", 6L));
-
-    TableReference tableReference = BigQueryHelpers.parseTableSpec("project:data_set.table_name");
-    Table table = new Table().setTableReference(tableReference)
-        .setSchema(new TableSchema()
-            .setFields(
-                ImmutableList.of(
-                    new TableFieldSchema().setName("name").setType("STRING"),
-                    new TableFieldSchema().setName("number").setType("INTEGER"))));
-    if (useStreamingBuffer) {
-      table.setStreamingBuffer(new Streamingbuffer().setEstimatedBytes(BigInteger.valueOf(10)));
-    }
-
-    fakeDatasetService.createDataset("project", "data_set", "", "", null);
-    fakeDatasetService.createTable(table);
-    fakeDatasetService.insertAll(tableReference, data, null);
-
-    BoundedSource<TableRow> source = BigQueryParallelReadTableSource.create(
-        ValueProvider.StaticValueProvider.of(tableReference),
-        TableRowProtoParser.INSTANCE,
-        TableRowJsonCoder.of(),
-        fakeBqServices,
-        null);
-
-    PipelineOptions options = PipelineOptionsFactory.create();
-    assertEquals(108, source.getEstimatedSizeBytes(options));
-  }
-
-  @Test
   public void testBigQueryQuerySourceInitSplit() throws Exception {
     TableReference dryRunTable = new TableReference();
 
@@ -820,76 +717,6 @@ public class BigQueryIOReadTest implements Serializable {
   }
 
   @Test
-  public void testBigQueryRowProtoSourceInitSplit() throws Exception {
-
-    CreateSessionRequest request = CreateSessionRequest.newBuilder()
-        .setTableReference(TableReferenceProto.TableReference.newBuilder()
-            .setProjectId("foo.com:someproject")
-            .setDatasetId("somedataset")
-            .setTableId("sometable"))
-        .setReaderCount(1024)
-        .build();
-
-    RowOuterClass.StructType structType = RowOuterClass.StructType.newBuilder()
-        .addFields(RowOuterClass.StructField.newBuilder()
-            .setFieldName("name")
-            .setFieldType(RowOuterClass.Type.newBuilder()
-                .setTypeKind(RowOuterClass.TypeKind.TYPE_STRING)))
-        .addFields(RowOuterClass.StructField.newBuilder()
-            .setFieldName("number")
-            .setFieldType(RowOuterClass.Type.newBuilder()
-                .setTypeKind(RowOuterClass.TypeKind.TYPE_INT64)))
-        .build();
-
-    Session session = Session.newBuilder()
-        .setName("session name")
-        .setProjectedSchema(structType)
-        .build();
-
-    for (int i = 0; i < 50; i++) {
-      session = session.toBuilder().addInitialReadLocations(ReadLocation.newBuilder().setReader(
-          Reader.newBuilder().setName("reader" + i))).build();
-    }
-
-    FakeTableReadService fakeTableReadService = new FakeTableReadService()
-        .withCreateSessionResult(request, session);
-
-    TableSchema tableSchema = new TableSchema().setFields(ImmutableList.of(
-        new TableFieldSchema().setName("name").setType("STRING"),
-        new TableFieldSchema().setName("number").setType("INTEGER")));
-
-    TableReference tableReference = new TableReference()
-        .setProjectId("foo.com:someproject")
-        .setDatasetId("somedataset")
-        .setTableId("sometable");
-
-    Table table = new Table()
-        .setTableReference(tableReference)
-        .setSchema(tableSchema)
-        .setNumBytes(1024L * 1024L);
-
-    FakeDatasetService fakeDatasetService = new FakeDatasetService();
-    fakeDatasetService.createDataset("foo.com:someproject", "somedataset", "", "", null);
-    fakeDatasetService.createTable(table);
-
-    BigQueryParallelReadTableSource<TableRow> tableSource =
-        BigQueryParallelReadTableSource.create(
-            ValueProvider.StaticValueProvider.of(tableReference),
-            TableRowProtoParser.INSTANCE,
-            TableRowJsonCoder.of(),
-            new FakeBigQueryServices()
-                .withTableReadService(fakeTableReadService)
-                .withDatasetService(fakeDatasetService),
-            null);
-
-    BigQueryOptions bqOptions = PipelineOptionsFactory.create().as(BigQueryOptions.class);
-    List<BoundedSource<TableRow>> sources = tableSource.split(1024, bqOptions);
-    assertEquals(50, sources.size());
-    long expectedSizeBytes = 1024L * 1024L / 50;
-    assertEquals(expectedSizeBytes, sources.get(0).getEstimatedSizeBytes(bqOptions));
-  }
-
-  @Test
   public void testPassThroughThenCleanup() throws Exception {
 
     PCollection<Integer> output =
@@ -971,228 +798,5 @@ public class BigQueryIOReadTest implements Serializable {
     assertEquals(
         KvCoder.of(ByteStringCoder.of(), ProtoCoder.of(Mutation.class)),
         BigQueryIO.read(parseFn).inferCoder(CoderRegistry.createDefault()));
-  }
-
-  @Test
-  public void testRowProtoCoderInference() {
-    SerializableFunction<SchemaAndRowProto, KV<ByteString, Mutation>> parseFn =
-        new SerializableFunction<SchemaAndRowProto, KV<ByteString, Mutation>>() {
-          @Override
-          public KV<ByteString, Mutation> apply(SchemaAndRowProto input) {
-            return null;
-          }
-        };
-
-    assertEquals(
-        KvCoder.of(ByteStringCoder.of(), ProtoCoder.of(Mutation.class)),
-        BigQueryIO.readViaRowProto(parseFn).inferCoder(CoderRegistry.createDefault()));
-  }
-
-  private CreateSessionRequest.Builder getDefaultCreateSessionRequestBuilder() {
-
-    TableReferenceProto.TableReference.Builder tableReference =
-        TableReferenceProto.TableReference.newBuilder()
-            .setProjectId("foo.com:someproject")
-            .setDatasetId("somedataset")
-            .setTableId("sometable");
-
-    return CreateSessionRequest.newBuilder()
-        .setTableReference(tableReference)
-        .setReaderCount(12);
-  }
-
-  static class ReadRowsRequestBuilder {
-
-    private String readerName = "default reader";
-    private ReadOptions.Builder readOptions = null;
-
-    ReadRowsRequestBuilder withMaxRows(int maxRows) {
-      readOptions = ReadOptions.newBuilder().setMaxRows(maxRows);
-      return this;
-    }
-
-    ReadRowsRequest build() {
-      ReadRowsRequest.Builder builder = ReadRowsRequest.newBuilder()
-          .setReadLocation(ReadLocation.newBuilder()
-              .setReader(Reader.newBuilder().setName(readerName)));
-      if (readOptions != null) {
-        builder.setOptions(readOptions);
-      }
-      return builder.build();
-    }
-  }
-
-  @Test
-  public void testReadFromRowProtoTableSource() throws Exception {
-    doReadFromParallelReadTableSource(null, null, null);
-  }
-
-  @Test
-  public void testReadFromRowProtoTableSourceWithSqlFilter() throws Exception {
-    CreateSessionRequest createSessionRequest = getDefaultCreateSessionRequestBuilder()
-        .setReadOptions(TableReadOptions.newBuilder().setSqlFilter("dummy filter"))
-        .build();
-    ReadSessionOptions readSessionOptions = ReadSessionOptions.builder()
-        .setSqlFilter("dummy filter").build();
-    doReadFromParallelReadTableSource(readSessionOptions, createSessionRequest, null);
-  }
-
-  @Test
-  public void testReadFromRowProtoTableSourceWithSelectedFields() throws Exception {
-    ReadSessionOptions readSessionOptions = ReadSessionOptions.builder()
-        .addSelectedField("field1").addSelectedField("field2").build();
-    CreateSessionRequest createSessionRequest = getDefaultCreateSessionRequestBuilder()
-        .setReadOptions(TableReadOptions.newBuilder()
-            .addSelectedFields("field1").addSelectedFields("field2"))
-        .build();
-    doReadFromParallelReadTableSource(readSessionOptions, createSessionRequest, null);
-  }
-
-  @Test
-  public void testReadFromRowProtoTableSourceWithSqlFilterAndSelectedFields() throws Exception {
-    ReadSessionOptions readSessionOptions = ReadSessionOptions.builder()
-        .setSqlFilter("dummy filter")
-        .addSelectedField("field1")
-        .addSelectedField("field2")
-        .build();
-    CreateSessionRequest createSessionRequest = getDefaultCreateSessionRequestBuilder()
-        .setReadOptions(TableReadOptions.newBuilder()
-            .setSqlFilter("dummy filter")
-            .addSelectedFields("field1").addSelectedFields("field2"))
-        .build();
-    doReadFromParallelReadTableSource(readSessionOptions, createSessionRequest, null);
-  }
-
-  @Test
-  public void testReadFromRowProtoTableSourceWithBatchSize() throws Exception {
-    ReadSessionOptions readSessionOptions = ReadSessionOptions.builder().setRowBatchSize(2000)
-        .build();
-    ReadRowsRequest readRowsRequest = new ReadRowsRequestBuilder().withMaxRows(2000).build();
-    doReadFromParallelReadTableSource(readSessionOptions, null, readRowsRequest);
-  }
-
-  @Test
-  public void testReadFromRowProtoTableSourceWithReadOptions() throws Exception {
-    ReadSessionOptions readSessionOptions = ReadSessionOptions.builder()
-        .setSqlFilter("dummy filter")
-        .addSelectedField("field1").addSelectedField("field2")
-        .setRowBatchSize(5000).build();
-    CreateSessionRequest createSessionRequest = getDefaultCreateSessionRequestBuilder()
-        .setReadOptions(TableReadOptions.newBuilder()
-            .setSqlFilter("dummy filter")
-            .addSelectedFields("field1").addSelectedFields("field2"))
-        .build();
-    ReadRowsRequest readRowsRequest = new ReadRowsRequestBuilder().withMaxRows(5000).build();
-    doReadFromParallelReadTableSource(readSessionOptions, createSessionRequest, readRowsRequest);
-  }
-
-  private void doReadFromParallelReadTableSource(
-      ReadSessionOptions readSessionOptions,
-      CreateSessionRequest createSessionRequest,
-      ReadRowsRequest readRowsRequest)
-      throws IOException, InterruptedException {
-
-    if (createSessionRequest == null) {
-      createSessionRequest = getDefaultCreateSessionRequestBuilder().build();
-    }
-
-    if (readRowsRequest == null) {
-      readRowsRequest = new ReadRowsRequestBuilder().withMaxRows(1000).build();
-    }
-
-    Reader reader = Reader.newBuilder().setName("default reader").build();
-    ReadLocation location = ReadLocation.newBuilder().setReader(reader).build();
-
-    RowOuterClass.StructType structType = RowOuterClass.StructType.newBuilder()
-        .addFields(RowOuterClass.StructField.newBuilder()
-            .setFieldName("name")
-            .setFieldType(RowOuterClass.Type.newBuilder()
-                .setTypeKind(RowOuterClass.TypeKind.TYPE_STRING)))
-        .addFields(RowOuterClass.StructField.newBuilder()
-            .setFieldName("number")
-            .setFieldType(RowOuterClass.Type.newBuilder()
-                .setTypeKind(RowOuterClass.TypeKind.TYPE_INT64)))
-        .build();
-
-    Session session = Session.newBuilder()
-        .setName("session name")
-        .setProjectedSchema(structType)
-        .addInitialReadLocations(location)
-        .build();
-
-    ReadLocation location2 = ReadLocation.newBuilder().setReader(reader).setToken("a").build();
-
-    RowOuterClass.Row row1 =
-        RowOuterClass.Row.newBuilder().setValue(
-            RowOuterClass.StructValue.newBuilder()
-                .addFields(RowOuterClass.Value.newBuilder().setStringValue("a").build())
-                .addFields(RowOuterClass.Value.newBuilder().setInt64Value(1L).build())
-                .build()).build();
-    RowOuterClass.Row row2 =
-        RowOuterClass.Row.newBuilder().setValue(
-            RowOuterClass.StructValue.newBuilder()
-                .addFields(RowOuterClass.Value.newBuilder().setStringValue("b").build())
-                .addFields(RowOuterClass.Value.newBuilder().setInt64Value(2L).build())
-                .build()).build();
-    RowOuterClass.Row row3 =
-        RowOuterClass.Row.newBuilder().setValue(
-            RowOuterClass.StructValue.newBuilder()
-                .addFields(RowOuterClass.Value.newBuilder().setStringValue("c").build())
-                .addFields(RowOuterClass.Value.newBuilder().setInt64Value(3L).build())
-                .build()).build();
-
-    List<ReadRowsResponse> readRowsResponses = new ArrayList<>(2);
-    readRowsResponses.add(ReadRowsResponse.newBuilder()
-        .addRows(row1).addRows(row2).setReadLocation(location2).build());
-    readRowsResponses.add(ReadRowsResponse.newBuilder()
-        .addRows(row3).build());
-
-    FakeTableReadService tableReadService = new FakeTableReadService()
-        .withCreateSessionResult(createSessionRequest, session)
-        .withReadRowsResponses(readRowsRequest, readRowsResponses);
-
-    BigQueryOptions bqOptions = TestPipeline.testingPipelineOptions().as(BigQueryOptions.class);
-    bqOptions.setProject("defaultproject");
-
-    Table sometable = new Table();
-    sometable.setSchema(
-        new TableSchema()
-            .setFields(
-                ImmutableList.of(
-                    new TableFieldSchema().setName("name").setType("STRING"),
-                    new TableFieldSchema().setName("number").setType("INTEGER"))));
-    sometable.setTableReference(
-        new TableReference()
-            .setProjectId("foo.com:someproject")
-            .setDatasetId("somedataset")
-            .setTableId("sometable"));
-    sometable.setNumBytes(1024L * 1024L);
-    FakeDatasetService fakeDatasetService = new FakeDatasetService();
-    fakeDatasetService.createDataset("foo.com:someproject", "somedataset", "", "", null);
-    fakeDatasetService.createTable(sometable);
-
-    FakeBigQueryServices fakeBqServices = new FakeBigQueryServices()
-        .withDatasetService(fakeDatasetService)
-        .withTableReadService(tableReadService);
-
-    Pipeline p = TestPipeline.create(bqOptions);
-    BigQueryIO.TypedRead<KV<String, Long>> read =
-        BigQueryIO.readViaRowProto(
-            new SerializableFunction<SchemaAndRowProto, KV<String, Long>>() {
-              @Override
-              public KV<String, Long> apply(SchemaAndRowProto input) {
-                return KV.of((String) input.get("name"), (Long) input.get("number"));
-              }
-            })
-            .from("foo.com:someproject:somedataset.sometable")
-            .withReadSessionOptions(readSessionOptions)
-            .withTestServices(fakeBqServices)
-            .withoutValidation();
-
-    PCollection<KV<String, Long>> output = p.apply(read);
-
-    PAssert.that(output)
-        .containsInAnyOrder(ImmutableList.of(KV.of("a", 1L), KV.of("b", 2L), KV.of("c", 3L)));
-    p.run();
   }
 }

@@ -40,18 +40,15 @@ public class FakeTableReadService implements TableReadService, Serializable {
   private ReadRowsRequest readRowsRequest;
   private List<ReadRowsResponse> readRowsResponses;
 
-  FakeTableReadService withCreateSessionResult(
-      CreateSessionRequest createSessionRequest, Session session) {
+  void setCreateSessionResult(CreateSessionRequest createSessionRequest, Session session) {
     this.createSessionRequest = createSessionRequest;
     this.session = session;
-    return this;
   }
 
-  FakeTableReadService withReadRowsResponses(
+  void setReadRowsResponses(
       ReadRowsRequest readRowsRequest, List<ReadRowsResponse> readRowsResponses) {
     this.readRowsRequest = readRowsRequest;
     this.readRowsResponses = new ArrayList<>(readRowsResponses);
-    return this;
   }
 
   @Override
