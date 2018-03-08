@@ -26,6 +26,7 @@ import com.google.api.client.util.BackOff;
 import com.google.api.client.util.BackOffUtils;
 import com.google.api.client.util.ExponentialBackOff;
 import com.google.api.client.util.Sleeper;
+import com.google.api.gax.core.FixedCredentialsProvider;
 import com.google.api.services.bigquery.Bigquery;
 import com.google.api.services.bigquery.model.Dataset;
 import com.google.api.services.bigquery.model.DatasetReference;
@@ -46,12 +47,16 @@ import com.google.api.services.bigquery.model.TableReference;
 import com.google.api.services.bigquery.model.TableRow;
 import com.google.auth.Credentials;
 import com.google.auth.http.HttpCredentialsAdapter;
+import com.google.cloud.bigquery.v3.ParallelRead;
+import com.google.cloud.bigquery.v3.ParallelReadServiceClient;
+import com.google.cloud.bigquery.v3.ParallelReadServiceSettings;
 import com.google.cloud.hadoop.util.ApiErrorExtractor;
 import com.google.cloud.hadoop.util.ChainingHttpRequestInitializer;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
@@ -104,6 +109,11 @@ class BigQueryServicesImpl implements BigQueryServices {
   @Override
   public DatasetService getDatasetService(BigQueryOptions options) {
     return new DatasetServiceImpl(options);
+  }
+
+  @Override
+  public TableReadService getTableReadService(BigQueryOptions options) throws IOException {
+    return new TableReadServiceImpl(options);
   }
 
   private static BackOff createDefaultBackoff() {
@@ -832,6 +842,28 @@ class BigQueryServicesImpl implements BigQueryServices {
           Sleeper.DEFAULT,
           createDefaultBackoff(),
           ALWAYS_RETRY);
+    }
+  }
+
+  static class TableReadServiceImpl implements TableReadService {
+
+    private ParallelReadServiceClient client;
+
+    private TableReadServiceImpl(BigQueryOptions options) throws IOException {
+      ParallelReadServiceSettings settings = ParallelReadServiceSettings.newBuilder()
+          .setCredentialsProvider(FixedCredentialsProvider.create(options.getGcpCredential()))
+          .build();
+      this.client = ParallelReadServiceClient.create(settings);
+    }
+
+    @Override
+    public ParallelRead.Session createSession(ParallelRead.CreateSessionRequest request) {
+      return client.createSession(request);
+    }
+
+    @Override
+    public Iterator<ParallelRead.ReadRowsResponse> readRows(ParallelRead.ReadRowsRequest request) {
+      return client.readRowsCallable().blockingServerStreamingCall(request);
     }
   }
 

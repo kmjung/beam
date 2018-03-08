@@ -53,6 +53,7 @@ import org.apache.beam.sdk.coders.VarIntCoder;
 import org.apache.beam.sdk.extensions.protobuf.ByteStringCoder;
 import org.apache.beam.sdk.extensions.protobuf.ProtoCoder;
 import org.apache.beam.sdk.io.BoundedSource;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.ReadSessionOptions;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.ValueProvider;
@@ -64,6 +65,7 @@ import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.SerializableFunction;
+import org.apache.beam.sdk.transforms.SerializableFunctions;
 import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.sdk.transforms.display.DisplayData;
 import org.apache.beam.sdk.transforms.display.DisplayDataEvaluator;
@@ -285,6 +287,18 @@ public class BigQueryIOReadTest implements Serializable {
         BigQueryIO.read()
             .from("foo.com:project:somedataset.sometable")
             .usingStandardSql());
+    p.run();
+  }
+
+  @Test
+  public void testBuildSourceWithReadSessionOptions() {
+    thrown.expect(IllegalArgumentException.class);
+    thrown.expectMessage(
+        "Invalid BigQueryIO.Read: Specifies read session options, which only apply when using"
+            + " TypedRead.Method.BQ_PARALLEL_READ");
+    p.apply(BigQueryIO.read(SerializableFunctions.identity())
+        .from("foo.com:project:somedataset.sometable")
+        .withReadSessionOptions(ReadSessionOptions.builder().build()));
     p.run();
   }
 
