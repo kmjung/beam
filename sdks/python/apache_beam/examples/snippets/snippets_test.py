@@ -223,24 +223,27 @@ class ParDoTest(unittest.TestCase):
     self.assertEqual({'xyz'}, set(marked))
 
   def test_pardo_with_undeclared_outputs(self):
-    numbers = [1, 2, 3, 4, 5, 10, 20]
+    # Note: the use of undeclared outputs is currently not supported in eager
+    # execution mode.
+    with TestPipeline() as p:
+      numbers = p | beam.Create([1, 2, 3, 4, 5, 10, 20])
 
-    # [START model_pardo_with_undeclared_outputs]
-    def even_odd(x):
-      yield pvalue.TaggedOutput('odd' if x % 2 else 'even', x)
-      if x % 10 == 0:
-        yield x
+      # [START model_pardo_with_undeclared_outputs]
+      def even_odd(x):
+        yield pvalue.TaggedOutput('odd' if x % 2 else 'even', x)
+        if x % 10 == 0:
+          yield x
 
-    results = numbers | beam.FlatMap(even_odd).with_outputs()
+      results = numbers | beam.FlatMap(even_odd).with_outputs()
 
-    evens = results.even
-    odds = results.odd
-    tens = results[None]  # the undeclared main output
-    # [END model_pardo_with_undeclared_outputs]
+      evens = results.even
+      odds = results.odd
+      tens = results[None]  # the undeclared main output
+      # [END model_pardo_with_undeclared_outputs]
 
-    self.assertEqual({2, 4, 10, 20}, set(evens))
-    self.assertEqual({1, 3, 5}, set(odds))
-    self.assertEqual({10, 20}, set(tens))
+      assert_that(evens, equal_to([2, 4, 10, 20]), label='assert_even')
+      assert_that(odds, equal_to([1, 3, 5]), label='assert_odds')
+      assert_that(tens, equal_to([10, 20]), label='assert_tens')
 
 
 class TypeHintsTest(unittest.TestCase):
@@ -305,10 +308,14 @@ class TypeHintsTest(unittest.TestCase):
           beam.typehints.Tuple[int, int])
 
   def test_runtime_checks_off(self):
+    # We do not run the following pipeline, as it has incorrect type
+    # information, and may fail with obscure errors, depending on the runner
+    # implementation.
+
     # pylint: disable=expression-not-assigned
-    with TestPipeline() as p:
-      # [START type_hints_runtime_off]
-      p | beam.Create(['a']) | beam.Map(lambda x: 3).with_output_types(str)
+    p = TestPipeline()
+    # [START type_hints_runtime_off]
+    p | beam.Create(['a']) | beam.Map(lambda x: 3).with_output_types(str)
     # [END type_hints_runtime_off]
 
   def test_runtime_checks_on(self):
@@ -325,7 +332,7 @@ class TypeHintsTest(unittest.TestCase):
       lines = (p | beam.Create(
           ['banana,fruit,3', 'kiwi,fruit,2', 'kiwi,fruit,2', 'zucchini,veg,3']))
 
-      # For pickling
+      # For pickling.
       global Player  # pylint: disable=global-variable-not-assigned
 
       # [START type_hints_deterministic_key]
@@ -451,7 +458,7 @@ class SnippetsTest(unittest.TestCase):
   def tearDown(self):
     beam.io.ReadFromText = self.old_read_from_text
     beam.io.WriteToText = self.old_write_to_text
-    # Cleanup all the temporary files created in the test
+    # Cleanup all the temporary files created in the test.
     map(os.remove, self.temp_files)
 
   def create_temp_file(self, contents=''):
@@ -1024,7 +1031,7 @@ class PTransformTest(unittest.TestCase):
     # [START model_composite_transform]
     class ComputeWordLengths(beam.PTransform):
       def expand(self, pcoll):
-        # transform logic goes here
+        # Transform logic goes here.
         return pcoll | beam.Map(lambda x: len(x))
     # [END model_composite_transform]
 

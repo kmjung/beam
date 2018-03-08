@@ -53,6 +53,7 @@ import org.apache.beam.sdk.coders.VarIntCoder;
 import org.apache.beam.sdk.extensions.protobuf.ByteStringCoder;
 import org.apache.beam.sdk.extensions.protobuf.ProtoCoder;
 import org.apache.beam.sdk.io.BoundedSource;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.ReadSessionOptions;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.ValueProvider;
@@ -64,6 +65,7 @@ import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.SerializableFunction;
+import org.apache.beam.sdk.transforms.SerializableFunctions;
 import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.sdk.transforms.display.DisplayData;
 import org.apache.beam.sdk.transforms.display.DisplayDataEvaluator;
@@ -289,6 +291,18 @@ public class BigQueryIOReadTest implements Serializable {
   }
 
   @Test
+  public void testBuildSourceWithReadSessionOptions() {
+    thrown.expect(IllegalArgumentException.class);
+    thrown.expectMessage(
+        "Invalid BigQueryIO.Read: Specifies read session options, which only apply when using"
+            + " TypedRead.Method.BQ_PARALLEL_READ");
+    p.apply(BigQueryIO.read(SerializableFunctions.identity())
+        .from("foo.com:project:somedataset.sometable")
+        .withReadSessionOptions(ReadSessionOptions.builder().build()));
+    p.run();
+  }
+
+  @Test
   public void testReadFromTableWithoutTemplateCompatibility()
       throws IOException, InterruptedException {
     testReadFromTable(false, false);
@@ -354,7 +368,8 @@ public class BigQueryIOReadTest implements Serializable {
           BigQueryIO.readTableRows()
               .from("non-executing-project:somedataset.sometable")
               .withTestServices(fakeBqServices)
-              .withoutValidation();
+              .withoutValidation()
+              .usingInteractivePriority();
       readTransform = useTemplateCompatibility ? read.withTemplateCompatibility() : read;
     }
     PCollection<KV<String, Long>> output =
@@ -373,6 +388,124 @@ public class BigQueryIOReadTest implements Serializable {
 
     PAssert.that(output)
         .containsInAnyOrder(ImmutableList.of(KV.of("a", 1L), KV.of("b", 2L), KV.of("c", 3L)));
+    p.run();
+  }
+
+  @Test
+  public void testReadFromTableInteractive()
+      throws IOException, InterruptedException {
+    Table sometable = new Table();
+    sometable.setSchema(
+        new TableSchema()
+            .setFields(
+                ImmutableList.of(
+                    new TableFieldSchema().setName("name").setType("STRING"),
+                    new TableFieldSchema().setName("number").setType("INTEGER"))));
+    sometable.setTableReference(
+        new TableReference()
+            .setProjectId("non-executing-project")
+            .setDatasetId("somedataset")
+            .setTableId("sometable"));
+    sometable.setNumBytes(1024L * 1024L);
+    FakeDatasetService fakeDatasetService = new FakeDatasetService();
+    fakeDatasetService.createDataset("non-executing-project", "somedataset", "", "", null);
+    fakeDatasetService.createTable(sometable);
+
+    List<TableRow> records = Lists.newArrayList(
+        new TableRow().set("name", "a").set("number", 1L),
+        new TableRow().set("name", "b").set("number", 2L),
+        new TableRow().set("name", "c").set("number", 3L));
+    fakeDatasetService.insertAll(sometable.getTableReference(), records, null);
+
+    FakeBigQueryServices fakeBqServices = new FakeBigQueryServices()
+        .withJobService(new FakeJobService())
+        .withDatasetService(fakeDatasetService);
+
+    PTransform<PBegin, PCollection<TableRow>> readTransform;
+    BigQueryIO.TypedRead<TableRow> read =
+        BigQueryIO.readTableRows()
+            .from("non-executing-project:somedataset.sometable")
+            .withTestServices(fakeBqServices)
+            .withoutValidation()
+            .usingInteractivePriority();
+    readTransform = read;
+
+    PCollection<KV<String, Long>> output =
+        p.apply(readTransform)
+            .apply(
+                ParDo.of(
+                    new DoFn<TableRow, KV<String, Long>>() {
+                      @ProcessElement
+                      public void processElement(ProcessContext c) throws Exception {
+                        c.output(
+                            KV.of(
+                                (String) c.element().get("name"),
+                                Long.valueOf((String) c.element().get("number"))));
+                      }
+                    }));
+
+    PAssert.that(output)
+        .containsInAnyOrder(ImmutableList.of(KV.of("a", 1L), KV.of("b", 2L), KV.of("c", 3L)));
+    assertEquals(read.getPriority(), BigQueryIO.TypedRead.Priority.INTERACTIVE);
+    p.run();
+  }
+
+  @Test
+  public void testReadFromTableBatch()
+      throws IOException, InterruptedException {
+    Table sometable = new Table();
+    sometable.setSchema(
+        new TableSchema()
+            .setFields(
+                ImmutableList.of(
+                    new TableFieldSchema().setName("name").setType("STRING"),
+                    new TableFieldSchema().setName("number").setType("INTEGER"))));
+    sometable.setTableReference(
+        new TableReference()
+            .setProjectId("non-executing-project")
+            .setDatasetId("somedataset")
+            .setTableId("sometable"));
+    sometable.setNumBytes(1024L * 1024L);
+    FakeDatasetService fakeDatasetService = new FakeDatasetService();
+    fakeDatasetService.createDataset("non-executing-project", "somedataset", "", "", null);
+    fakeDatasetService.createTable(sometable);
+
+    List<TableRow> records = Lists.newArrayList(
+        new TableRow().set("name", "a").set("number", 1L),
+        new TableRow().set("name", "b").set("number", 2L),
+        new TableRow().set("name", "c").set("number", 3L));
+    fakeDatasetService.insertAll(sometable.getTableReference(), records, null);
+
+    FakeBigQueryServices fakeBqServices = new FakeBigQueryServices()
+        .withJobService(new FakeJobService())
+        .withDatasetService(fakeDatasetService);
+
+    PTransform<PBegin, PCollection<TableRow>> readTransform;
+    BigQueryIO.TypedRead<TableRow> read =
+        BigQueryIO.readTableRows()
+            .from("non-executing-project:somedataset.sometable")
+            .withTestServices(fakeBqServices)
+            .withoutValidation()
+            .usingBatchPriority();
+    readTransform = read;
+
+    PCollection<KV<String, Long>> output =
+        p.apply(readTransform)
+            .apply(
+                ParDo.of(
+                    new DoFn<TableRow, KV<String, Long>>() {
+                      @ProcessElement
+                      public void processElement(ProcessContext c) throws Exception {
+                        c.output(
+                            KV.of(
+                                (String) c.element().get("name"),
+                                Long.valueOf((String) c.element().get("number"))));
+                      }
+                    }));
+
+    PAssert.that(output)
+        .containsInAnyOrder(ImmutableList.of(KV.of("a", 1L), KV.of("b", 2L), KV.of("c", 3L)));
+    assertEquals(read.getPriority(), BigQueryIO.TypedRead.Priority.BATCH);
     p.run();
   }
 
@@ -612,7 +745,8 @@ public class BigQueryIOReadTest implements Serializable {
         true /* useLegacySql */,
         fakeBqServices,
         TableRowJsonCoder.of(),
-        BigQueryIO.TableRowParser.INSTANCE);
+        BigQueryIO.TableRowParser.INSTANCE,
+        BigQueryIO.TypedRead.Priority.BATCH);
     options.setTempLocation(testFolder.getRoot().getAbsolutePath());
 
     TableReference queryTable = new TableReference()
@@ -690,7 +824,8 @@ public class BigQueryIOReadTest implements Serializable {
         true /* useLegacySql */,
         fakeBqServices,
         TableRowJsonCoder.of(),
-        BigQueryIO.TableRowParser.INSTANCE);
+        BigQueryIO.TableRowParser.INSTANCE,
+        BigQueryIO.TypedRead.Priority.BATCH);
 
     options.setTempLocation(testFolder.getRoot().getAbsolutePath());
 

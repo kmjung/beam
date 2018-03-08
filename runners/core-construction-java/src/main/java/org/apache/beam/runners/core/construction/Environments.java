@@ -18,6 +18,7 @@
 
 package org.apache.beam.runners.core.construction;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.protobuf.InvalidProtocolBufferException;
 import java.io.IOException;
@@ -41,7 +42,7 @@ public class Environments {
           .put(PTransformTranslation.COMBINE_TRANSFORM_URN, Environments::combineExtractor)
           .put(PTransformTranslation.PAR_DO_TRANSFORM_URN, Environments::parDoExtractor)
           .put(PTransformTranslation.READ_TRANSFORM_URN, Environments::readExtractor)
-          .put(PTransformTranslation.WINDOW_TRANSFORM_URN, Environments::windowExtractor)
+          .put(PTransformTranslation.ASSIGN_WINDOWS_TRANSFORM_URN, Environments::windowExtractor)
           .build();
 
   private static final EnvironmentIdExtractor DEFAULT_SPEC_EXTRACTOR = (transform) -> null;
@@ -62,7 +63,10 @@ public class Environments {
           KNOWN_URN_SPEC_EXTRACTORS
               .getOrDefault(ptransform.getSpec().getUrn(), DEFAULT_SPEC_EXTRACTOR)
               .getEnvironmentId(ptransform);
-      if (envId != null) {
+      if (!Strings.isNullOrEmpty(envId)) {
+        // Some PTransform payloads may have an empty (default) Environment ID, for example a
+        // WindowIntoPayload with a known WindowFn. Others will never have an Environment ID, such
+        // as a GroupByKeyPayload, and the Default extractor returns null in this case.
         return Optional.of(components.getEnvironment(envId));
       } else {
         return Optional.empty();

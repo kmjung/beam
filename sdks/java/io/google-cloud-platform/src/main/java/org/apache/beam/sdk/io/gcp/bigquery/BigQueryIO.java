@@ -41,6 +41,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import java.io.IOException;
+import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -278,6 +279,39 @@ public class BigQueryIO {
   private static final Logger LOG = LoggerFactory.getLogger(BigQueryIO.class);
 
   /**
+   * This class specifies options for a BigQuery parallel read session.
+   */
+  @AutoValue
+  public abstract static class ReadSessionOptions implements Serializable {
+    @Nullable public abstract String getSqlFilter();
+    public abstract ImmutableList<String> getSelectedFields();
+    @Nullable public abstract Integer getRowBatchSize();
+
+    abstract ReadSessionOptions.Builder toBuilder();
+    public static Builder builder() {
+      return new AutoValue_BigQueryIO_ReadSessionOptions.Builder();
+    }
+
+    /**
+     * Builder for {link ReadSessionOptions}.
+     */
+    @AutoValue.Builder
+    public abstract static class Builder {
+      public abstract Builder setSqlFilter(String sqlFilter);
+      public abstract Builder setSelectedFields(ImmutableList<String> selectedFields);
+      public abstract Builder setRowBatchSize(Integer rowBatchSize);
+
+      protected abstract ImmutableList.Builder<String> selectedFieldsBuilder();
+      public Builder addSelectedField(String field) {
+        selectedFieldsBuilder().add(field);
+        return this;
+      }
+
+      public abstract ReadSessionOptions build();
+    }
+  }
+
+  /**
    * Singleton instance of the JSON factory used to read and write JSON formatted rows.
    */
   static final JsonFactory JSON_FACTORY = Transport.getJsonFactory();
@@ -362,6 +396,37 @@ public class BigQueryIO {
         .setWithTemplateCompatibility(false)
         .setBigQueryServices(new BigQueryServicesImpl())
         .setParseFn(parseFn)
+        .setMethod(TypedRead.Method.GCS_EXPORT)
+        .build();
+  }
+
+  /**
+   * Reads from a BigQuery table using the BigQuery parallel read API and returns a
+   * {@link PCollection} with one element per each row of the table, parsed from the BigQuery
+   * {@link com.google.cloud.bigquery.v3.RowOuterClass.Row} format using the specified function.
+   *
+   * <p>Each {@link SchemaAndRowProto} contains a BigQuery
+   * {@link com.google.cloud.bigquery.v3.RowOuterClass.StructType} representing the table schema
+   * and a {@link com.google.cloud.bigquery.v3.RowOuterClass.Row} representing the row, indexed by
+   * column name. Here is a sample parse function that parses click events from a table.
+   *
+   * <pre>{@code
+   * p.apply(
+   *   BigQueryIO.readViaRowProto((SchemaAndRowProto input) -> {
+   *     return new Event((Long) input.get("userId"), (String) row.get("url"));
+   *   }).from("..."));
+   * }</pre>
+   *
+   */
+  @Experimental
+  public static <T> TypedRead<T> readViaRowProto(
+      SerializableFunction<SchemaAndRowProto, T> parseFn) {
+    return new AutoValue_BigQueryIO_TypedRead.Builder<T>()
+        .setValidate(true)
+        .setWithTemplateCompatibility(false)
+        .setBigQueryServices(new BigQueryServicesImpl())
+        .setRowProtoParseFn(parseFn)
+        .setMethod(TypedRead.Method.BQ_PARALLEL_READ)
         .build();
   }
 
@@ -375,6 +440,20 @@ public class BigQueryIO {
       return BigQueryAvroUtils.convertGenericRecordToTableRow(
           schemaAndRecord.getRecord(),
           schemaAndRecord.getTableSchema());
+    }
+  }
+
+  @Experimental
+  @VisibleForTesting
+  static class TableRowProtoParser
+      implements SerializableFunction<SchemaAndRowProto, TableRow> {
+
+    public static final TableRowProtoParser INSTANCE = new TableRowProtoParser();
+
+    public TableRow apply(SchemaAndRowProto schemaAndRowProto) {
+      return BigQueryRowProtoUtils.convertRowProtoToTableRow(
+          schemaAndRowProto.getSchema(),
+          schemaAndRowProto.getRow());
     }
   }
 
@@ -514,7 +593,8 @@ public class BigQueryIO {
   /////////////////////////////////////////////////////////////////////////////
 
   /**
-   * Implementation of {@link BigQueryIO#read(SerializableFunction)}.
+   * Implementation of {@link BigQueryIO#read(SerializableFunction)} and
+   * {@link BigQueryIO#readViaRowProto(SerializableFunction)}.
    */
   @AutoValue
   public abstract static class TypedRead<T> extends PTransform<PBegin, PCollection<T>> {
@@ -529,10 +609,15 @@ public class BigQueryIO {
       abstract Builder<T> setUseLegacySql(Boolean useLegacySql);
       abstract Builder<T> setWithTemplateCompatibility(Boolean useTemplateCompatibility);
       abstract Builder<T> setBigQueryServices(BigQueryServices bigQueryServices);
+      abstract Builder<T> setPriority(Priority priority);
+      @Experimental abstract Builder<T> setMethod(Method method);
+      @Experimental abstract Builder<T> setReadSessionOptions(ReadSessionOptions options);
       abstract TypedRead<T> build();
 
       abstract Builder<T> setParseFn(
           SerializableFunction<SchemaAndRecord, T> parseFn);
+      @Experimental abstract Builder<T> setRowProtoParseFn(
+          SerializableFunction<SchemaAndRowProto, T> parseFn);
       abstract Builder<T> setCoder(Coder<T> coder);
     }
 
@@ -546,9 +631,65 @@ public class BigQueryIO {
 
     abstract BigQueryServices getBigQueryServices();
 
-    abstract SerializableFunction<SchemaAndRecord, T> getParseFn();
+    @Nullable abstract SerializableFunction<SchemaAndRecord, T> getParseFn();
+    @Experimental @Nullable
+    abstract SerializableFunction<SchemaAndRowProto, T> getRowProtoParseFn();
+
+    @Nullable abstract Priority getPriority();
+    @Experimental abstract Method getMethod();
+    @Experimental @Nullable abstract ReadSessionOptions getReadSessionOptions();
 
     @Nullable abstract Coder<T> getCoder();
+
+    /**
+    * An enumeration type for the priority of a query.
+    *
+    * @see
+    * <a href="https://cloud.google.com/bigquery/docs/running-queries">
+    *     Running Interactive and Batch Queries in the BigQuery documentation</a>
+    */
+    public enum Priority {
+        /**
+        * Specifies that a query should be run with an INTERACTIVE priority.
+        *
+        * <p>Interactive mode allows for BigQuery to execute the query as soon as possible. These
+        * queries count towards your concurrent rate limit and your daily limit.
+        */
+        INTERACTIVE,
+
+        /**
+        * Specifies that a query should be run with a BATCH priority.
+        *
+        * <p>Batch mode queries are queued by BigQuery.  These are started as soon as idle
+        * resources are available, usually within a few minutes. Batch queries don’t count
+        * towards your concurrent rate limit.
+        */
+        BATCH
+    }
+
+    /**
+     * An enumeration type for the method to be used when reading data from BigQuery.
+     */
+    public enum Method {
+
+      /**
+       * The default behavior if no method is explicitly set. Currently {@link #GCS_EXPORT}.
+       */
+      DEFAULT,
+
+      /**
+       * Export data to Google Cloud Storage in Avro format and read data from that location. This
+       * option can be used to read from existing BigQuery tables and to read the results of
+       * queries.
+       */
+      GCS_EXPORT,
+
+      /**
+       * Read the contents of a table directly from BigQuery storage using the BigQuery parallel
+       * read API. This option can be used only to read the contents of an existing table.
+       */
+      BQ_PARALLEL_READ,
+    }
 
     @VisibleForTesting
     Coder<T> inferCoder(CoderRegistry coderRegistry) {
@@ -557,7 +698,11 @@ public class BigQueryIO {
       }
 
       try {
-        return coderRegistry.getCoder(TypeDescriptors.outputOf(getParseFn()));
+        if (getMethod() == Method.BQ_PARALLEL_READ) {
+          return coderRegistry.getCoder(TypeDescriptors.outputOf(getRowProtoParseFn()));
+        } else {
+          return coderRegistry.getCoder(TypeDescriptors.outputOf(getParseFn()));
+        }
       } catch (CannotProvideCoderException e) {
         throw new IllegalArgumentException(
             "Unable to infer coder for output of parseFn. Specify it explicitly using withCoder().",
@@ -583,7 +728,8 @@ public class BigQueryIO {
                 getUseLegacySql(),
                 getBigQueryServices(),
                 coder,
-                getParseFn());
+                getParseFn(),
+                getPriority());
       }
       return source;
     }
@@ -597,20 +743,21 @@ public class BigQueryIO {
       // Even if existence validation is disabled, we need to make sure that the BigQueryIO
       // read is properly specified.
       BigQueryOptions bqOptions = options.as(BigQueryOptions.class);
-
-      String tempLocation = bqOptions.getTempLocation();
-      checkArgument(
-          !Strings.isNullOrEmpty(tempLocation),
-          "BigQueryIO.Read needs a GCS temp location to store temp files.");
-      if (getBigQueryServices() == null) {
-        try {
-          GcsPath.fromUri(tempLocation);
-        } catch (IllegalArgumentException e) {
-          throw new IllegalArgumentException(
-              String.format(
-                  "BigQuery temp location expected a valid 'gs://' path, but was given '%s'",
-                  tempLocation),
-              e);
+      if (getMethod() != Method.BQ_PARALLEL_READ) {
+        String tempLocation = bqOptions.getTempLocation();
+        checkArgument(
+            !Strings.isNullOrEmpty(tempLocation),
+            "BigQueryIO.Read needs a GCS temp location to store temp files.");
+        if (getBigQueryServices() == null) {
+          try {
+            GcsPath.fromUri(tempLocation);
+          } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(
+                String.format(
+                    "BigQuery temp location expected a valid 'gs://' path, but was given '%s'",
+                    tempLocation),
+                e);
+          }
         }
       }
 
@@ -651,6 +798,34 @@ public class BigQueryIO {
     public PCollection<T> expand(PBegin input) {
       ValueProvider<TableReference> table = getTableProvider();
 
+      if (getMethod() == Method.BQ_PARALLEL_READ) {
+        checkArgument(
+            getTable() != null,
+            "Invalid BigQueryIO.Read: Table is required when using"
+                + " TypedRead.Method.BQ_PARALLEL_READ");
+        checkArgument(
+            getRowProtoParseFn() != null,
+            "Invalid BigQueryIO.Read: A row proto parseFn is required when using"
+                + " TypedRead.Method.BQ_PARALLEL_READ");
+        checkArgument(
+            getParseFn() == null,
+            "Invalid BigQueryIO.Read: Specifies an Avro parseFn, which only applies when using"
+                + " TypedRead.Method.GCS_EXPORT");
+      } else {
+        checkArgument(
+            getReadSessionOptions() == null,
+            "Invalid BigQueryIO.Read: Specifies read session options, which only apply when using"
+                + " TypedRead.Method.BQ_PARALLEL_READ");
+        checkArgument(
+            getParseFn() != null,
+            "Invalid BigQueryIO.Read: An Avro parseFn is required when using"
+                + " TypedRead.Method.GCS_EXPORT");
+        checkArgument(
+            getRowProtoParseFn() == null,
+            "Invalid BigQueryIO.Read: Specifies a row proto parseFn, which only applies when using"
+                + " TypedRead.Method.BQ_PARALLEL_READ");
+      }
+
       if (table != null) {
         checkArgument(getQuery() == null, "from() and fromQuery() are exclusive");
         checkArgument(
@@ -673,10 +848,18 @@ public class BigQueryIO {
             getFlattenResults() != null, "flattenResults should not be null if query is set");
         checkArgument(getUseLegacySql() != null, "useLegacySql should not be null if query is set");
       }
-      checkArgument(getParseFn() != null, "A parseFn is required");
 
       Pipeline p = input.getPipeline();
       final Coder<T> coder = inferCoder(p.getCoderRegistry());
+      if (getMethod() == Method.BQ_PARALLEL_READ) {
+        return p.apply(org.apache.beam.sdk.io.Read.from(BigQueryParallelReadTableSource.create(
+            getTableProvider(),
+            getRowProtoParseFn(),
+            coder,
+            getBigQueryServices(),
+            getReadSessionOptions())));
+      }
+
       final PCollectionView<String> jobIdTokenView;
       PCollection<String> jobIdTokenCollection;
       PCollection<T> rows;
@@ -835,6 +1018,15 @@ public class BigQueryIO {
       return toBuilder().setCoder(coder).build();
     }
 
+    /**
+     * Sets the {@link ReadSessionOptions} for the read session. This can be specified only when
+     * using {@link Method#BQ_PARALLEL_READ} as the underlying method.
+     */
+    @Experimental
+    public TypedRead<T> withReadSessionOptions(ReadSessionOptions options) {
+      return toBuilder().setReadSessionOptions(options).build();
+    }
+
     /** See {@link Read#from(String)}. */
     public TypedRead<T> from(String tableSpec) {
       return from(StaticValueProvider.of(tableSpec));
@@ -882,7 +1074,17 @@ public class BigQueryIO {
       return toBuilder().setUseLegacySql(false).build();
     }
 
-    /** See {@link Read#withTemplateCompatibility()}. */
+    /** See {@link Priority#INTERACTIVE}. */
+    public TypedRead<T> usingInteractivePriority() {
+      return toBuilder().setPriority(Priority.INTERACTIVE).build();
+    }
+
+    /** See {@link Priority#BATCH}. */
+    public TypedRead<T> usingBatchPriority() {
+      return toBuilder().setPriority(Priority.BATCH).build();
+    }
+
+    /** See {@link TypedRead#withTemplateCompatibility()}. */
     @Experimental(Experimental.Kind.SOURCE_SINK)
     public TypedRead<T> withTemplateCompatibility() {
       return toBuilder().setWithTemplateCompatibility(true).build();

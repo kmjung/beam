@@ -28,8 +28,10 @@ import com.google.api.services.bigquery.model.JobStatistics;
 import com.google.api.services.bigquery.model.Table;
 import com.google.api.services.bigquery.model.TableReference;
 import com.google.api.services.bigquery.model.TableRow;
+import com.google.cloud.bigquery.v3.ParallelRead;
 import java.io.IOException;
 import java.io.Serializable;
+import java.util.Iterator;
 import java.util.List;
 import javax.annotation.Nullable;
 import org.apache.beam.sdk.values.ValueInSingleWindow;
@@ -46,6 +48,11 @@ interface BigQueryServices extends Serializable {
    * Returns a real, mock, or fake {@link DatasetService}.
    */
   DatasetService getDatasetService(BigQueryOptions bqOptions);
+
+  /**
+   * Returns a real, mock, or fake {@link TableReadService}.
+   */
+  TableReadService getTableReadService(BigQueryOptions options) throws IOException;
 
   /**
    * An interface for the Cloud BigQuery load service.
@@ -170,4 +177,16 @@ interface BigQueryServices extends Serializable {
         throws IOException, InterruptedException;
   }
 
+  interface TableReadService {
+
+    /**
+     * Creates a new read session against an existing table.
+     */
+    ParallelRead.Session createSession(ParallelRead.CreateSessionRequest request);
+
+    /**
+     * Initiates a read stream from an existing session and read location.
+     */
+    Iterator<ParallelRead.ReadRowsResponse> readRows(ParallelRead.ReadRowsRequest request);
+  }
 }
