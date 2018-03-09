@@ -19,6 +19,7 @@
 package org.apache.beam.sdk.io.gcp.bigquery;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 
 import com.google.api.services.bigquery.model.Table;
 import com.google.api.services.bigquery.model.TableReference;
@@ -114,6 +115,25 @@ class BigQueryParallelReadTableSource<T> extends BoundedSource<T> {
   }
 
   /**
+   * Returns the effective table reference for the table. If the caller has not specified a project
+   * ID directly in the table reference, then the project ID is set from the pipeline options.
+   */
+  private TableReference getEffectiveTableReference(BigQueryOptions options) throws IOException {
+    TableReference tableReference =
+        BigQueryIO.JSON_FACTORY.fromString(jsonTableRefProvider.get(), TableReference.class);
+    if (Strings.isNullOrEmpty(tableReference.getProjectId())) {
+      checkState(
+          !Strings.isNullOrEmpty(options.getProject()),
+          "No project ID was set in %s or %s; cannot construct a complete %s",
+          TableReference.class.getSimpleName(),
+          BigQueryOptions.class.getSimpleName(),
+          TableReference.class.getSimpleName());
+      tableReference.setProjectId(options.getProject());
+    }
+    return tableReference;
+  }
+
+  /**
    * Gets the estimated number of bytes returned by the current source. For sources created by a
    * split() operation, this is a fraction of the total table size.
    */
@@ -125,10 +145,9 @@ class BigQueryParallelReadTableSource<T> extends BoundedSource<T> {
     }
 
     if (cachedReadSizeBytes == null) {
-      TableReference tableReference = BigQueryIO.JSON_FACTORY.fromString(
-          jsonTableRefProvider.get(), TableReference.class);
-      Table table = bqServices.getDatasetService(options.as(BigQueryOptions.class))
-          .getTable(tableReference);
+      BigQueryOptions bigQueryOptions = options.as(BigQueryOptions.class);
+      TableReference tableReference = getEffectiveTableReference(bigQueryOptions);
+      Table table = bqServices.getDatasetService(bigQueryOptions).getTable(tableReference);
       if (table != null) {
         cachedReadSizeBytes = table.getNumBytes();
       }
@@ -147,11 +166,9 @@ class BigQueryParallelReadTableSource<T> extends BoundedSource<T> {
       return ImmutableList.of(this);
     }
 
-    CreateSessionRequest.Builder requestBuilder = CreateSessionRequest.newBuilder();
-    TableReference tableReference = BigQueryIO.JSON_FACTORY.fromString(
-        jsonTableRefProvider.get(), TableReference.class);
-    requestBuilder.setTableReference(
-        TableReferenceProto.TableReference.newBuilder()
+    TableReference tableReference = getEffectiveTableReference(options.as(BigQueryOptions.class));
+    CreateSessionRequest.Builder requestBuilder = CreateSessionRequest.newBuilder()
+        .setTableReference(TableReferenceProto.TableReference.newBuilder()
             .setProjectId(tableReference.getProjectId())
             .setDatasetId(tableReference.getDatasetId())
             .setTableId(tableReference.getTableId()));

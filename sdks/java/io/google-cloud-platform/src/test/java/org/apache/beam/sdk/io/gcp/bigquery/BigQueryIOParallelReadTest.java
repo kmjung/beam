@@ -296,7 +296,27 @@ public class BigQueryIOParallelReadTest {
     assertEquals(0, source.getEstimatedSizeBytes(pipelineOptions));
   }
 
-  private static final Long TABLE_SIZE_BYTES = 1024L * 1024L;
+  @Test
+  public void testTableSourceEstimatedSizeWithDefaultProject() throws Exception {
+    Table table = new Table().setTableReference(defaultTableReference).setNumBytes(100L);
+    fakeDatasetService.createDataset(DEFAULT_PROJECT_ID, DEFAULT_DATASET_ID, "", "", null);
+    fakeDatasetService.createTable(table);
+
+    TableReference tableReference =
+        new TableReference().setDatasetId(DEFAULT_DATASET_ID).setTableId(DEFAULT_TABLE_ID);
+    BoundedSource<Row> source = BigQueryParallelReadTableSource.create(
+        ValueProvider.StaticValueProvider.of(tableReference),
+        SchemaAndRowProto::getRow,
+        ProtoCoder.of(Row.class),
+        fakeBigQueryServices,
+        null);
+
+    BigQueryOptions options = PipelineOptionsFactory.fromArgs("--project=" + DEFAULT_PROJECT_ID)
+        .as(BigQueryOptions.class);
+    assertEquals(100, source.getEstimatedSizeBytes(options));
+  }
+
+  private static final long TABLE_SIZE_BYTES = 1024L * 1024L;
 
   @Test
   public void testTableSourceInitialSplit() throws Exception {
@@ -348,6 +368,41 @@ public class BigQueryIOParallelReadTest {
     assertEquals(50, sources.size());
     long expectedSizeBytes = TABLE_SIZE_BYTES / 50;
     assertEquals(expectedSizeBytes, sources.get(0).getEstimatedSizeBytes(options));
+  }
+
+  @Test
+  public void testTableSourceInitialSplitWithDefaultProject() throws Exception {
+    Table table = new Table().setTableReference(defaultTableReference)
+        .setNumBytes(TABLE_SIZE_BYTES);
+    fakeDatasetService.createDataset(DEFAULT_PROJECT_ID, DEFAULT_DATASET_ID, "", "", null);
+    fakeDatasetService.createTable(table);
+
+    CreateSessionRequest createSessionRequest = CreateSessionRequest.newBuilder()
+        .setTableReference(defaultTableReferenceProto)
+        .setReaderCount(1024)
+        .build();
+
+    Session session = Session.newBuilder()
+        .setName("session")
+        .addInitialReadLocations(ReadLocation.newBuilder())
+        .build();
+
+    fakeTableReadService.setCreateSessionResult(createSessionRequest, session);
+
+    TableReference tableReference =
+        new TableReference().setDatasetId(DEFAULT_DATASET_ID).setTableId(DEFAULT_TABLE_ID);
+    BoundedSource<Row> source = BigQueryParallelReadTableSource.create(
+        ValueProvider.StaticValueProvider.of(tableReference),
+        SchemaAndRowProto::getRow,
+        ProtoCoder.of(Row.class),
+        fakeBigQueryServices,
+        null);
+
+    BigQueryOptions options = PipelineOptionsFactory.fromArgs("--project=" + DEFAULT_PROJECT_ID)
+        .as(BigQueryOptions.class);
+    List<? extends BoundedSource<Row>> sources = source.split(1024, options);
+    assertEquals(1, sources.size());
+    assertEquals(TABLE_SIZE_BYTES, sources.get(0).getEstimatedSizeBytes(options));
   }
 
   @Test
