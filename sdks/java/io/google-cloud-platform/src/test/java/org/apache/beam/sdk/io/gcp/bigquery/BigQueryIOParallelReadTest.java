@@ -390,8 +390,7 @@ public class BigQueryIOParallelReadTest {
   public void testReadFromTableSourceWithSelectedFields() throws Exception {
 
     ReadSessionOptions readSessionOptions = ReadSessionOptions.builder()
-        .addSelectedField("field 1")
-        .addSelectedField("field 2")
+        .setSelectedFields(Lists.newArrayList("field 1", "field 2"))
         .build();
 
     CreateSessionRequest createSessionRequest =
@@ -409,8 +408,7 @@ public class BigQueryIOParallelReadTest {
 
     ReadSessionOptions readSessionOptions = ReadSessionOptions.builder()
         .setSqlFilter("SQL filter")
-        .addSelectedField("field 1")
-        .addSelectedField("field 2")
+        .setSelectedFields(Lists.newArrayList("field 1", "field 2"))
         .build();
 
     CreateSessionRequest createSessionRequest =
@@ -443,8 +441,7 @@ public class BigQueryIOParallelReadTest {
 
     ReadSessionOptions readSessionOptions = ReadSessionOptions.builder()
         .setSqlFilter("SQL filter")
-        .addSelectedField("field 1")
-        .addSelectedField("field 2")
+        .setSelectedFields(Lists.newArrayList("field 1", "field 2"))
         .setRowBatchSize(500)
         .build();
 

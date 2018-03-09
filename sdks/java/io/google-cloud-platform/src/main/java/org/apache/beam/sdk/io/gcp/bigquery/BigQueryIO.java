@@ -284,7 +284,7 @@ public class BigQueryIO {
   @AutoValue
   public abstract static class ReadSessionOptions implements Serializable {
     @Nullable public abstract String getSqlFilter();
-    public abstract ImmutableList<String> getSelectedFields();
+    @Nullable public abstract List<String> getSelectedFields();
     @Nullable public abstract Integer getRowBatchSize();
 
     abstract ReadSessionOptions.Builder toBuilder();
@@ -298,15 +298,8 @@ public class BigQueryIO {
     @AutoValue.Builder
     public abstract static class Builder {
       public abstract Builder setSqlFilter(String sqlFilter);
-      public abstract Builder setSelectedFields(ImmutableList<String> selectedFields);
+      public abstract Builder setSelectedFields(List<String> selectedFields);
       public abstract Builder setRowBatchSize(Integer rowBatchSize);
-
-      protected abstract ImmutableList.Builder<String> selectedFieldsBuilder();
-      public Builder addSelectedField(String field) {
-        selectedFieldsBuilder().add(field);
-        return this;
-      }
-
       public abstract ReadSessionOptions build();
     }
   }

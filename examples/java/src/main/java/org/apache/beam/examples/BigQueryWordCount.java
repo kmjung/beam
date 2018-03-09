@@ -17,6 +17,7 @@
  */
 package org.apache.beam.examples;
 
+import com.google.common.collect.Lists;
 import java.io.Serializable;
 import org.apache.beam.examples.BigQueryWordCount.BigQueryWordCountOptions.ReadMode;
 import org.apache.beam.sdk.Pipeline;
@@ -278,9 +279,10 @@ public class BigQueryWordCount {
                   BigQueryIO.readViaRowProto(parseRowProtoFn)
                       .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
                       .withReadSessionOptions(ReadSessionOptions.builder()
-                          .addSelectedField(NUM_CHARACTERS_FIELD_NAME)
-                          .addSelectedField(CONTRIBUTOR_USERNAME_FIELD_NAME)
-                          .addSelectedField(CONTRIBUTOR_IP_FIELD_NAME)
+                          .setSelectedFields(Lists.newArrayList(
+                              CONTRIBUTOR_IP_FIELD_NAME,
+                              CONTRIBUTOR_USERNAME_FIELD_NAME,
+                              NUM_CHARACTERS_FIELD_NAME))
                           .build())
                       .from(DEFAULT_TABLE_REFERENCE))
               .apply("Filter edits to small articles",
@@ -321,9 +323,10 @@ public class BigQueryWordCount {
                       .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
                       .withReadSessionOptions(ReadSessionOptions.builder()
                           .setSqlFilter(NUM_CHARACTERS_FIELD_NAME + " > 5000")
-                          .addSelectedField(NUM_CHARACTERS_FIELD_NAME)
-                          .addSelectedField(CONTRIBUTOR_USERNAME_FIELD_NAME)
-                          .addSelectedField(CONTRIBUTOR_IP_FIELD_NAME)
+                          .setSelectedFields(Lists.newArrayList(
+                              CONTRIBUTOR_IP_FIELD_NAME,
+                              CONTRIBUTOR_USERNAME_FIELD_NAME,
+                              NUM_CHARACTERS_FIELD_NAME))
                           .build())
                       .from(DEFAULT_TABLE_REFERENCE));
         }
