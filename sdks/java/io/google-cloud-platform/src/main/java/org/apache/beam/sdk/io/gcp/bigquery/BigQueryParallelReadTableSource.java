@@ -129,7 +129,12 @@ class BigQueryParallelReadTableSource<T> extends BoundedSource<T> {
           jsonTableRefProvider.get(), TableReference.class);
       Table table = bqServices.getDatasetService(options.as(BigQueryOptions.class))
           .getTable(tableReference);
-      cachedReadSizeBytes = table.getNumBytes();
+      if (table != null) {
+        cachedReadSizeBytes = table.getNumBytes();
+      }
+      if (cachedReadSizeBytes == null) {
+        cachedReadSizeBytes = 0L;
+      }
     }
 
     return cachedReadSizeBytes;

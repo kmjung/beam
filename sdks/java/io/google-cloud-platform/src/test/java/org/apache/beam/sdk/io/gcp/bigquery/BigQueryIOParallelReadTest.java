@@ -281,6 +281,21 @@ public class BigQueryIOParallelReadTest {
     assertEquals(100, source.getEstimatedSizeBytes(pipelineOptions));
   }
 
+  @Test
+  public void testTableSourceEstimatedSizeWithNullTable() throws Exception {
+    fakeDatasetService.createDataset(DEFAULT_PROJECT_ID, DEFAULT_DATASET_ID, "", "", null);
+
+    BoundedSource<Row> source = BigQueryParallelReadTableSource.create(
+        ValueProvider.StaticValueProvider.of(defaultTableReference),
+        SchemaAndRowProto::getRow,
+        ProtoCoder.of(Row.class),
+        fakeBigQueryServices,
+        null);
+
+    PipelineOptions pipelineOptions = PipelineOptionsFactory.create();
+    assertEquals(0, source.getEstimatedSizeBytes(pipelineOptions));
+  }
+
   private static final Long TABLE_SIZE_BYTES = 1024L * 1024L;
 
   @Test
