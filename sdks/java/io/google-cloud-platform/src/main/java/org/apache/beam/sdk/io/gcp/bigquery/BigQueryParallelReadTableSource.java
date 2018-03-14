@@ -212,6 +212,9 @@ class BigQueryParallelReadTableSource<T> extends BoundedSource<T> {
     CreateSessionRequest createSessionRequest = requestBuilder.build();
     Session session = bqServices.getTableReadService(options.as(BigQueryOptions.class))
         .createSession(createSessionRequest);
+    if (session.getInitialReadLocationsCount() == 0) {
+      return ImmutableList.of();
+    }
 
     Long readSizeBytes = tableSizeBytes / session.getInitialReadLocationsCount();
     List<BoundedSource<T>> sources = new ArrayList<>(session.getInitialReadLocationsCount());

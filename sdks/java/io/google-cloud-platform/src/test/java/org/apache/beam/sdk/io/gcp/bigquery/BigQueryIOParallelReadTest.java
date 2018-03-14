@@ -406,6 +406,32 @@ public class BigQueryIOParallelReadTest {
   }
 
   @Test
+  public void testTableSourceInitialSplitOverEmptyTable() throws Exception {
+    Table table = new Table().setTableReference(defaultTableReference).setNumBytes(0L);
+    fakeDatasetService.createDataset(DEFAULT_PROJECT_ID, DEFAULT_DATASET_ID, "", "", null);
+    fakeDatasetService.createTable(table);
+
+    CreateSessionRequest createSessionRequest = CreateSessionRequest.newBuilder()
+        .setTableReference(defaultTableReferenceProto)
+        .setReaderCount(10)
+        .build();
+
+    // Return a session with no read locations.
+    Session session = Session.newBuilder().setName("session").build();
+    fakeTableReadService.setCreateSessionResult(createSessionRequest, session);
+
+    BoundedSource<Row> source = BigQueryParallelReadTableSource.create(
+        ValueProvider.StaticValueProvider.of(defaultTableReference),
+        SchemaAndRowProto::getRow,
+        ProtoCoder.of(Row.class),
+        fakeBigQueryServices,
+        null);
+
+    List<? extends BoundedSource<Row>> sources = source.split(1024, options);
+    assertEquals(0, sources.size());
+  }
+
+  @Test
   public void testCoderInference() {
     // Lambdas erase too much type information -- use an anonymous class here.
     SerializableFunction<SchemaAndRowProto, Row> parseFn =
