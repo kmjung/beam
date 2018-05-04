@@ -760,13 +760,7 @@ public class BigQueryIO {
 
     @Override
     public PCollection<T> expand(PBegin input) {
-      ValueProvider<TableReference> table = getTableProvider();
-
       if (getMethod() == Method.BQ_PARALLEL_READ) {
-        checkArgument(
-            getTable() != null,
-            "Invalid BigQueryIO.Read: Table is required when using"
-                + " TypedRead.Method.BQ_PARALLEL_READ");
         checkArgument(
             getRowProtoParseFn() != null,
             "Invalid BigQueryIO.Read: A row proto parseFn is required when using"
@@ -777,10 +771,6 @@ public class BigQueryIO {
                 + " TypedRead.Method.GCS_EXPORT");
       } else {
         checkArgument(
-            getReadSessionOptions() == null,
-            "Invalid BigQueryIO.Read: Specifies read session options, which only apply when using"
-                + " TypedRead.Method.BQ_PARALLEL_READ");
-        checkArgument(
             getParseFn() != null,
             "Invalid BigQueryIO.Read: An Avro parseFn is required when using"
                 + " TypedRead.Method.GCS_EXPORT");
@@ -788,7 +778,13 @@ public class BigQueryIO {
             getRowProtoParseFn() == null,
             "Invalid BigQueryIO.Read: Specifies a row proto parseFn, which only applies when using"
                 + " TypedRead.Method.BQ_PARALLEL_READ");
+        checkArgument(
+            getReadSessionOptions() == null,
+            "Invalid BigQueryIO.Read: Specifies read session options, which only apply when using"
+                + " TypedRead.Method.BQ_PARALLEL_READ");
       }
+
+      ValueProvider<TableReference> table = getTableProvider();
 
       if (table != null) {
         checkArgument(getQuery() == null, "from() and fromQuery() are exclusive");
@@ -815,13 +811,29 @@ public class BigQueryIO {
 
       Pipeline p = input.getPipeline();
       final Coder<T> coder = inferCoder(p.getCoderRegistry());
+
       if (getMethod() == Method.BQ_PARALLEL_READ) {
-        return p.apply(org.apache.beam.sdk.io.Read.from(BigQueryParallelReadTableSource.create(
-            getTableProvider(),
-            getRowProtoParseFn(),
-            coder,
-            getBigQueryServices(),
-            getReadSessionOptions())));
+        // When using Method.BQ_PARALLEL_READ, it is not necessary to track the view ID since there
+        // are no temporary files to delete; the Read transform can be applied directly.
+        if (table != null) {
+          return p.apply(org.apache.beam.sdk.io.Read.from(BigQueryParallelReadTableSource.create(
+              getTableProvider(),
+              getRowProtoParseFn(),
+              coder,
+              getBigQueryServices(),
+              getReadSessionOptions())));
+        } else {
+          final String staticJobUuid = BigQueryHelpers.randomUUIDString();
+          return p.apply(org.apache.beam.sdk.io.Read.from(BigQueryParallelReadQuerySource.create(
+              getBigQueryServices(),
+              getRowProtoParseFn(),
+              coder,
+              getReadSessionOptions(),
+              staticJobUuid,
+              getQuery(),
+              getFlattenResults(),
+              getUseLegacySql())));
+        }
       }
 
       final PCollectionView<String> jobIdTokenView;

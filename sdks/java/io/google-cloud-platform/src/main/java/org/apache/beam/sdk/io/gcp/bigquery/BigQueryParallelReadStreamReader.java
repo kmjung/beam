@@ -35,9 +35,9 @@ import org.slf4j.LoggerFactory;
 /**
  * Iterates over all rows assigned to a particular reader in a read session.
  */
-class BigQueryParallelReader<T> extends BoundedSource.BoundedReader<T> {
+class BigQueryParallelReadStreamReader<T> extends BoundedSource.BoundedReader<T> {
 
-  private static final Logger LOG = LoggerFactory.getLogger(BigQueryParallelReader.class);
+  private static final Logger LOG = LoggerFactory.getLogger(BigQueryParallelReadStreamReader.class);
 
   private Session session;
   private final BigQueryServices client;
@@ -49,7 +49,7 @@ class BigQueryParallelReader<T> extends BoundedSource.BoundedReader<T> {
   private BigQueryOptions options;
   private Row currentRow;
 
-  BigQueryParallelReader(
+  BigQueryParallelReadStreamReader(
       Session session,
       ReadLocation readLocation,
       Integer rowBatchSize,
