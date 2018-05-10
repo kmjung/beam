@@ -36,6 +36,24 @@ public class BigQueryParallelReadStreamSource<T> extends BoundedSource<T> {
 
   private static final Logger LOG = LoggerFactory.getLogger(BigQueryParallelReadStreamSource.class);
 
+  static <T> BigQueryParallelReadStreamSource<T> create(
+      BigQueryServices bqServices,
+      SerializableFunction<SchemaAndRowProto, T> parseFn,
+      Coder<T> coder,
+      BigQueryIO.ReadSessionOptions readSessionOptions,
+      ParallelRead.Session readSession,
+      ParallelRead.ReadLocation readLocation,
+      Long readSizeBytes) {
+    return new BigQueryParallelReadStreamSource<>(
+        bqServices,
+        parseFn,
+        coder,
+        readSessionOptions,
+        readSession,
+        readLocation,
+        readSizeBytes);
+  }
+
   private final BigQueryServices bqServices;
   private final SerializableFunction<SchemaAndRowProto, T> parseFn;
   private final Coder<T> coder;

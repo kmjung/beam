@@ -33,6 +33,9 @@ import com.google.api.services.bigquery.model.TableRow;
 import com.google.api.services.bigquery.model.TableSchema;
 import com.google.api.services.bigquery.model.TimePartitioning;
 import com.google.auto.value.AutoValue;
+import com.google.cloud.bigquery.v3.ParallelRead;
+import com.google.cloud.bigquery.v3.ReadOptions;
+import com.google.cloud.bigquery.v3.TableReferenceProto;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Predicates;
@@ -57,6 +60,7 @@ import org.apache.beam.sdk.coders.CoderRegistry;
 import org.apache.beam.sdk.coders.KvCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
+import org.apache.beam.sdk.extensions.protobuf.ProtoCoder;
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.io.FileSystems;
 import org.apache.beam.sdk.io.fs.MoveOptions;
@@ -77,6 +81,7 @@ import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.beam.sdk.options.ValueProvider.NestedValueProvider;
 import org.apache.beam.sdk.options.ValueProvider.StaticValueProvider;
+import org.apache.beam.sdk.transforms.Count;
 import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.MapElements;
@@ -813,8 +818,8 @@ public class BigQueryIO {
       final Coder<T> coder = inferCoder(p.getCoderRegistry());
 
       if (getMethod() == Method.BQ_PARALLEL_READ) {
-        // When using Method.BQ_PARALLEL_READ, it is not necessary to track the view ID since there
-        // are no temporary files to delete; the Read transform can be applied directly.
+        // When using Method.BQ_PARALLEL_READ to read directly from a table, there are no temporary
+        // resources to clean up; the Read transform can be returned directly.
         if (table != null) {
           return p.apply(org.apache.beam.sdk.io.Read.from(BigQueryParallelReadTableSource.create(
               getTableProvider(),
@@ -822,18 +827,158 @@ public class BigQueryIO {
               coder,
               getBigQueryServices(),
               getReadSessionOptions())));
-        } else {
-          final String staticJobUuid = BigQueryHelpers.randomUUIDString();
-          return p.apply(org.apache.beam.sdk.io.Read.from(BigQueryParallelReadQuerySource.create(
-              getBigQueryServices(),
-              getRowProtoParseFn(),
-              coder,
-              getReadSessionOptions(),
-              staticJobUuid,
-              getQuery(),
-              getFlattenResults(),
-              getUseLegacySql())));
         }
+
+        // When using Method.BQ_PARALLEL_READ to read the results of a query, the underlying
+        // dataset and table must remain live while the data is being read and then be cleaned up
+        // afterwards.
+        PCollection<String> jobIdTokenCollection =
+            p.apply("TriggerJobIdCreation", Create.of("ignored"))
+                .apply("CreateJobId",
+                    MapElements.via(
+                        new SimpleFunction<String, String>() {
+                          @Override
+                          public String apply(String input) {
+                            return BigQueryHelpers.randomUUIDString();
+                          }
+                        }));
+
+        final TupleTag<ParallelRead.Session> sessionTag = new TupleTag<>();
+        final TupleTag<ParallelRead.ReadLocation> readLocationTag = new TupleTag<>();
+        final TupleTag<String> tableReferenceTag = new TupleTag<>();
+
+        PCollectionTuple tuple =
+            jobIdTokenCollection.apply(
+                "ExecuteQuery",
+                ParDo.of(
+                    new DoFn<String, ParallelRead.ReadLocation>() {
+                      @ProcessElement
+                      public void processElement(ProcessContext c) throws Exception {
+                        String jobUuid = c.element();
+
+                        BigQueryParallelReadQuerySource<T> source =
+                            BigQueryParallelReadQuerySource.create(
+                                getBigQueryServices(),
+                                getRowProtoParseFn(),
+                                coder,
+                                getReadSessionOptions(),
+                                jobUuid,
+                                getQuery(),
+                                getFlattenResults(),
+                                getUseLegacySql());
+
+                        TableReference queryResultTable = source.getEffectiveTableReference(
+                            c.getPipelineOptions().as(BigQueryOptions.class));
+
+                        c.output(tableReferenceTag, BigQueryHelpers.toJsonString(queryResultTable));
+
+                        ParallelRead.CreateSessionRequest.Builder requestBuilder =
+                            ParallelRead.CreateSessionRequest.newBuilder()
+                                .setTableReference(
+                                    TableReferenceProto.TableReference.newBuilder()
+                                        .setProjectId(queryResultTable.getProjectId())
+                                        .setDatasetId(queryResultTable.getDatasetId())
+                                        .setTableId(queryResultTable.getTableId()));
+
+                        if (getReadSessionOptions() != null) {
+                          ReadOptions.TableReadOptions.Builder tableReadOptionsBuilder = null;
+                          String sqlFilter = getReadSessionOptions().getSqlFilter();
+                          if (!Strings.isNullOrEmpty(sqlFilter)) {
+                            tableReadOptionsBuilder =
+                                ReadOptions.TableReadOptions.newBuilder().setSqlFilter(sqlFilter);
+                          }
+
+                          List<String> selectedFields = getReadSessionOptions().getSelectedFields();
+                          if (selectedFields != null && !selectedFields.isEmpty()) {
+                            if (tableReadOptionsBuilder == null) {
+                              tableReadOptionsBuilder = ReadOptions.TableReadOptions.newBuilder();
+                            }
+                            for (String selectedField : selectedFields) {
+                              tableReadOptionsBuilder.addSelectedFields(selectedField);
+                            }
+                          }
+
+                          if (tableReadOptionsBuilder != null) {
+                            requestBuilder.setReadOptions(tableReadOptionsBuilder);
+                          }
+                        }
+
+                        ParallelRead.CreateSessionRequest request = requestBuilder.build();
+                        ParallelRead.Session session = getBigQueryServices()
+                            .getTableReadService(c.getPipelineOptions().as(BigQueryOptions.class))
+                            .createSession(request);
+
+                        c.output(sessionTag, session);
+
+                        for (ParallelRead.ReadLocation initialReadLocation :
+                            session.getInitialReadLocationsList()) {
+                          c.output(initialReadLocation);
+                        }
+                      }
+                    })
+                    .withOutputTags(readLocationTag,
+                        TupleTagList.of(tableReferenceTag).and(sessionTag)));
+
+        tuple.get(sessionTag).setCoder(ProtoCoder.of(ParallelRead.Session.class));
+        tuple.get(readLocationTag).setCoder(ProtoCoder.of(ParallelRead.ReadLocation.class));
+        tuple.get(tableReferenceTag).setCoder(StringUtf8Coder.of());
+
+        final PCollectionView<ParallelRead.Session> sessionView =
+            tuple.get(sessionTag).apply("ViewSessionId", View.asSingleton());
+
+        PCollection<T> rows = tuple
+            .get(readLocationTag)
+            .apply(Reshuffle.viaRandomKey())
+            .apply(
+                "ReadFromTemporaryTable",
+                ParDo.of(
+                    new DoFn<ParallelRead.ReadLocation, T>() {
+                      @ProcessElement
+                      public void processElement(ProcessContext c) throws Exception {
+
+                        BigQueryParallelReadStreamSource<T> source =
+                            BigQueryParallelReadStreamSource.create(
+                                getBigQueryServices(),
+                                getRowProtoParseFn(),
+                                coder,
+                                getReadSessionOptions(),
+                                c.sideInput(sessionView),
+                                c.element(),
+                                null);
+
+                        BoundedSource.BoundedReader<T> reader =
+                            source.createReader(c.getPipelineOptions());
+                        for (boolean more = reader.start(); more; more = reader.advance()) {
+                          c.output(reader.getCurrent());
+                        }
+                      }
+                    })
+                    .withSideInputs(sessionView));
+
+        rows.setCoder(coder);
+
+        final PCollectionView<String> tableReferenceView =
+            tuple.get(tableReferenceTag).apply("ViewTemporaryTable", View.asSingleton());
+
+        rows.apply("WaitForCompletion", Count.globally())
+            .apply(
+                "DeleteTemporaryTable",
+                ParDo.of(
+                    new DoFn<Long, Void>() {
+                      @ProcessElement
+                      public void processElement(ProcessContext c) throws Exception {
+                        TableReference tableReference = BigQueryHelpers.fromJsonString(
+                            c.sideInput(tableReferenceView), TableReference.class);
+                        DatasetService datasetService = getBigQueryServices()
+                            .getDatasetService(c.getPipelineOptions().as(BigQueryOptions.class));
+                        datasetService.deleteTable(tableReference);
+                        datasetService.deleteDataset(
+                            tableReference.getProjectId(), tableReference.getDatasetId());
+                      }
+                    })
+                    .withSideInputs(tableReferenceView));
+
+        return rows;
       }
 
       final PCollectionView<String> jobIdTokenView;
