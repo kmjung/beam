@@ -351,14 +351,14 @@ public class BigQueryWordCount {
       case READ_COLUMNS_AND_FILTER:
         if (options.getReadMode() == ReadMode.GCS_EXPORT) {
           editRecords = pipeline
-              .apply("Run projection and filtering query, export results to GCS, and read rows",
+              .apply("Run filter projection query, export results to GCS, and read rows",
                   BigQueryIO.read(parseRecordFn)
                       .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
                       .fromQuery(FILTER_PROJECTION_QUERY_STRING)
                       .usingStandardSql());
         } else if (options.getReadMode() == ReadMode.READ_FROM_QUERY) {
           editRecords = pipeline
-              .apply("Run projection / filtering query and read table rows from a temporary table",
+              .apply("Run filter projection query and read table rows from a temporary table",
                   BigQueryIO.readViaRowProto(parseRowProtoFn)
                       .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
                       .fromQuery(FILTER_PROJECTION_QUERY_STRING)
