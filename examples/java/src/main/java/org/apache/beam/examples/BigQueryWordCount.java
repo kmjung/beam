@@ -198,16 +198,6 @@ public class BigQueryWordCount {
   }
 
   /**
-   * A {@link SimpleFunction} that converts an author and edit count into a printable string.
-   */
-  static class FormatAsTextFn extends SimpleFunction<KV<String, Long>, String> {
-    @Override
-    public String apply(KV<String, Long> input) {
-      return input.getKey() + ": " + input.getValue();
-    }
-  }
-
-  /**
    * Options supported by {@link BigQueryWordCount}.
    */
   public interface BigQueryWordCountOptions extends org.apache.beam.sdk.options.PipelineOptions {
@@ -355,7 +345,8 @@ public class BigQueryWordCount {
                   BigQueryIO.read(parseRecordFn)
                       .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
                       .fromQuery(FILTER_PROJECTION_QUERY_STRING)
-                      .usingStandardSql());
+                      .usingStandardSql()
+                      .withTemplateCompatibility());
         } else if (options.getReadMode() == ReadMode.READ_FROM_QUERY) {
           editRecords = pipeline
               .apply("Run filter projection query and read table rows from a temporary table",

@@ -20,8 +20,17 @@ package org.apache.beam.sdk.io.gcp.bigquery;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.cloud.bigquery.v3.ParallelRead;
+import com.google.cloud.bigquery.v3.ParallelRead.ReadLocation;
+import com.google.cloud.bigquery.v3.ParallelRead.ReadOptions;
+import com.google.cloud.bigquery.v3.ParallelRead.ReadRowsRequest;
+import com.google.cloud.bigquery.v3.ParallelRead.ReadRowsResponse;
+import com.google.cloud.bigquery.v3.ParallelRead.Session;
+import com.google.cloud.bigquery.v3.RowOuterClass.Row;
 import com.google.common.collect.ImmutableList;
+import java.io.IOException;
+import java.util.Iterator;
 import java.util.List;
+import org.apache.beam.sdk.annotations.Experimental;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.options.PipelineOptions;
@@ -32,6 +41,7 @@ import org.slf4j.LoggerFactory;
 /**
  * A {@link BoundedSource} to read from existing read streams using the BigQuery parallel read API.
  */
+@Experimental(Experimental.Kind.SOURCE_SINK)
 public class BigQueryParallelReadStreamSource<T> extends BoundedSource<T> {
 
   private static final Logger LOG = LoggerFactory.getLogger(BigQueryParallelReadStreamSource.class);
@@ -108,5 +118,84 @@ public class BigQueryParallelReadStreamSource<T> extends BoundedSource<T> {
   @Override
   public Coder<T> getOutputCoder() {
     return coder;
+  }
+
+  /**
+   * Iterates over all rows assigned to a particular reader in a read session.
+   */
+  @Experimental(Experimental.Kind.SOURCE_SINK)
+  static class BigQueryParallelReadStreamReader<T> extends BoundedReader<T> {
+
+    private Session session;
+    private final BigQueryServices client;
+    private Iterator<ReadRowsResponse> responseIterator;
+    private Iterator<Row> rowIterator;
+    private final ReadRowsRequest request;
+    private SerializableFunction<SchemaAndRowProto, T> parseFn;
+    private BoundedSource<T> source;
+    private BigQueryOptions options;
+    private Row currentRow;
+
+    BigQueryParallelReadStreamReader(
+        Session session,
+        ReadLocation readLocation,
+        Integer rowBatchSize,
+        SerializableFunction<SchemaAndRowProto, T> parseFn,
+        BoundedSource<T> source,
+        BigQueryServices client,
+        BigQueryOptions options) {
+      this.session = checkNotNull(session, "session");
+      this.client = checkNotNull(client, "client");
+      this.parseFn = checkNotNull(parseFn, "parseFn");
+      this.source = checkNotNull(source, "source");
+      this.options = options;
+
+      this.request = ReadRowsRequest.newBuilder()
+          .setReadLocation(readLocation)
+          .setOptions(ReadOptions.newBuilder()
+              .setMaxRows(checkNotNull(rowBatchSize, "rowBatchSize")))
+          .build();
+    }
+
+    /**
+     * Empty operation, the table is already open for read.
+     * @throws IOException on failure
+     */
+    @Override
+    public boolean start() throws IOException {
+      responseIterator = client.getTableReadService(options).readRows(request);
+      return advance();
+    }
+
+    @Override
+    public boolean advance() {
+      if (rowIterator == null || !rowIterator.hasNext()) {
+        if (!responseIterator.hasNext()) {
+          currentRow = null;
+          return false;
+        }
+        rowIterator = responseIterator.next().getRowsList().iterator();
+      }
+      currentRow = rowIterator.next();
+      return true;
+    }
+
+    @Override
+    public T getCurrent() {
+      if (currentRow == null) {
+        return null;
+      }
+      return parseFn.apply(new SchemaAndRowProto(session.getProjectedSchema(), currentRow));
+    }
+
+    @Override
+    public void close() {
+      // Do nothing.
+    }
+
+    @Override
+    public BoundedSource<T> getCurrentSource() {
+      return source;
+    }
   }
 }

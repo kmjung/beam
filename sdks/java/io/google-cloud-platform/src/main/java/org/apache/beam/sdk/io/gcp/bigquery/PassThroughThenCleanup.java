@@ -41,12 +41,12 @@ import org.apache.beam.sdk.values.TupleTagList;
 class PassThroughThenCleanup<T> extends PTransform<PCollection<T>, PCollection<T>> {
 
   private CleanupOperation cleanupOperation;
-  private PCollectionView<String> jobIdSideInput;
+  private PCollectionView<String> cleanupInput;
 
   PassThroughThenCleanup(
-      CleanupOperation cleanupOperation, PCollectionView<String> jobIdSideInput) {
+      CleanupOperation cleanupOperation, PCollectionView<String> cleanupInput) {
     this.cleanupOperation = cleanupOperation;
-    this.jobIdSideInput = jobIdSideInput;
+    this.cleanupInput = cleanupInput;
   }
 
   @Override
@@ -68,10 +68,10 @@ class PassThroughThenCleanup<T> extends PTransform<PCollection<T>, PCollection<T
                     new DoFn<CleanupOperation, Void>() {
                       @ProcessElement
                       public void processElement(ProcessContext c) throws Exception {
-                        c.element().cleanup(new ContextContainer(c, jobIdSideInput));
+                        c.element().cleanup(new ContextContainer(c, cleanupInput));
                       }
                     })
-                .withSideInputs(jobIdSideInput, cleanupSignalView));
+                .withSideInputs(cleanupInput, cleanupSignalView));
 
     return outputs.get(mainOutput).setCoder(input.getCoder());
   }
@@ -100,7 +100,7 @@ class PassThroughThenCleanup<T> extends PTransform<PCollection<T>, PCollection<T
       return context.getPipelineOptions();
     }
 
-    public String getJobId() {
+    public String getSideInput() {
       return context.sideInput(view);
     }
   }
