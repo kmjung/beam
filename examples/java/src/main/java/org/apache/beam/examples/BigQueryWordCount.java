@@ -31,6 +31,7 @@ import org.apache.beam.sdk.metrics.Metrics;
 import org.apache.beam.sdk.options.Description;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.Validation.Required;
+import org.apache.beam.sdk.testing.PAssert;
 import org.apache.beam.sdk.transforms.Count;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.ParDo;
@@ -61,14 +62,25 @@ import org.apache.beam.sdk.values.PCollection;
  *                            --pipelineType=READ_FULL_ROWS"
  * }</pre>
  *
- * <p>Example run command with {@link ReadMode#BQ_PARALLEL_READ}:
+ * <p>Example run command with {@link ReadMode#READ_FROM_QUERY}:
  * <pre>{@code
  * mvn exec:java -Pdataflow-runner
  *               -Dexec.mainClass=org.apache.beam.examples.BigQueryWordCount
  *               -Dexec.args="--runner=DataflowRunner
  *                            --tempLocation='gs://<your GCS bucket>/<path>'
  *                            --project=<your project ID>
- *                            --readMode=BQ_PARALLEL_READ
+ *                            --readMode=READ_FROM_QUERY
+ *                            --pipelineType=READ_FULL_ROWS"
+ * }</pre>
+ *
+ * <p>Example run command with {@link ReadMode#READ_FROM_TABLE}:
+ * <pre>{@code
+ * mvn exec:java -Pdataflow-runner
+ *               -Dexec.mainClass=org.apache.beam.examples.BigQueryWordCount
+ *               -Dexec.args="--runner=DataflowRunner
+ *                            --tempLocation='gs://<your GCS bucket>/<path>'
+ *                            --project=<your project ID>
+ *                            --readMode=READ_FROM_TABLE
  *                            --pipelineType=READ_FULL_ROWS"
  * }</pre>
  */
@@ -78,6 +90,9 @@ public class BigQueryWordCount {
   private static final String NUM_CHARACTERS_FIELD_NAME = "num_characters";
   private static final String CONTRIBUTOR_USERNAME_FIELD_NAME = "contributor_username";
   private static final String CONTRIBUTOR_IP_FIELD_NAME = "contributor_ip";
+
+  private static final String SIMPLE_QUERY_STRING = "#standardSQL\n"
+      + "SELECT * FROM `bigquery-public-data.samples.wikipedia`";
 
   private static final String PROJECTION_QUERY_STRING = "#standardSQL\n"
       + "SELECT num_characters, contributor_username, contributor_ip\n"
@@ -183,16 +198,6 @@ public class BigQueryWordCount {
   }
 
   /**
-   * A {@link SimpleFunction} that converts an author and edit count into a printable string.
-   */
-  static class FormatAsTextFn extends SimpleFunction<KV<String, Long>, String> {
-    @Override
-    public String apply(KV<String, Long> input) {
-      return input.getKey() + ": " + input.getValue();
-    }
-  }
-
-  /**
    * Options supported by {@link BigQueryWordCount}.
    */
   public interface BigQueryWordCountOptions extends org.apache.beam.sdk.options.PipelineOptions {
@@ -202,10 +207,11 @@ public class BigQueryWordCount {
      */
     enum ReadMode {
       GCS_EXPORT,
-      BQ_PARALLEL_READ,
+      READ_FROM_QUERY,
+      READ_FROM_TABLE,
     }
 
-    @Description("Read mode: GCS_EXPORT, BQ_PARALLEL_READ")
+    @Description("Read mode: GCS_EXPORT, READ_FROM_QUERY, READ_FROM_TABLE")
     @Required
     ReadMode getReadMode();
     void setReadMode(ReadMode readMode);
@@ -254,6 +260,15 @@ public class BigQueryWordCount {
                       .from(DEFAULT_TABLE_REFERENCE))
               .apply("Filter edits to small articles",
                   ParDo.of(new FilterSmallPagesFn()));
+        } else if (options.getReadMode() == ReadMode.READ_FROM_QUERY) {
+          editRecords = pipeline
+              .apply("Query all rows and read table rows from a temporary table",
+                  BigQueryIO.readViaRowProto(parseRowProtoFn)
+                      .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
+                      .fromQuery(SIMPLE_QUERY_STRING)
+                      .usingStandardSql())
+              .apply("Filter edits to small articles",
+                  ParDo.of(new FilterSmallPagesFn()));
         } else {
           editRecords = pipeline
               .apply("Read table rows from BigQuery storage",
@@ -269,6 +284,14 @@ public class BigQueryWordCount {
           editRecords = pipeline
               .apply("Run projection query, export results to GCS, and read rows",
                   BigQueryIO.read(parseRecordFn)
+                      .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
+                      .fromQuery(PROJECTION_QUERY_STRING)
+                      .usingStandardSql())
+              .apply("Filter edits to small articles", ParDo.of(new FilterSmallPagesFn()));
+        } else if (options.getReadMode() == ReadMode.READ_FROM_QUERY) {
+          editRecords = pipeline
+              .apply("Run projection query and read table rows from a temporary table",
+                  BigQueryIO.readViaRowProto(parseRowProtoFn)
                       .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
                       .fromQuery(PROJECTION_QUERY_STRING)
                       .usingStandardSql())
@@ -297,6 +320,13 @@ public class BigQueryWordCount {
                       .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
                       .fromQuery(FILTER_QUERY_STRING)
                       .usingStandardSql());
+        } else if (options.getReadMode() == ReadMode.READ_FROM_QUERY) {
+          editRecords = pipeline
+              .apply("Run filtering query and read rows from a temporary table",
+                  BigQueryIO.readViaRowProto(parseRowProtoFn)
+                      .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
+                      .fromQuery(FILTER_QUERY_STRING)
+                      .usingStandardSql());
         } else {
           editRecords = pipeline
               .apply("Read table rows from BigQuery storage with push-down filtering",
@@ -311,8 +341,16 @@ public class BigQueryWordCount {
       case READ_COLUMNS_AND_FILTER:
         if (options.getReadMode() == ReadMode.GCS_EXPORT) {
           editRecords = pipeline
-              .apply("Run projection and filtering query, export results to GCS, and read rows",
+              .apply("Run filter projection query, export results to GCS, and read rows",
                   BigQueryIO.read(parseRecordFn)
+                      .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
+                      .fromQuery(FILTER_PROJECTION_QUERY_STRING)
+                      .usingStandardSql()
+                      .withTemplateCompatibility());
+        } else if (options.getReadMode() == ReadMode.READ_FROM_QUERY) {
+          editRecords = pipeline
+              .apply("Run filter projection query and read table rows from a temporary table",
+                  BigQueryIO.readViaRowProto(parseRowProtoFn)
                       .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
                       .fromQuery(FILTER_PROJECTION_QUERY_STRING)
                       .usingStandardSql());
@@ -337,6 +375,9 @@ public class BigQueryWordCount {
         .apply("Extract user information (contributor username or IP address) from edit record",
             ParDo.of(new ExtractUserInfoFn()))
         .apply("Count edits per user", Count.perElement());
+
+    // Verify that the expected number of edit authors were found.
+    PAssert.thatSingleton(editsPerAuthor.apply(Count.globally())).isEqualTo(16725243L);
 
     pipeline.run().waitUntilFinish();
   }

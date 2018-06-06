@@ -18,12 +18,16 @@
 package org.apache.beam.sdk.io.gcp.bigquery;
 
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 
 import com.google.cloud.bigquery.v3.ParallelRead.CreateSessionRequest;
 import com.google.cloud.bigquery.v3.ParallelRead.ReadRowsRequest;
 import com.google.cloud.bigquery.v3.ParallelRead.ReadRowsResponse;
 import com.google.cloud.bigquery.v3.ParallelRead.Session;
+import com.google.cloud.bigquery.v3.ReadOptions;
+import com.google.cloud.bigquery.v3.TableReferenceProto;
+import com.google.common.base.Strings;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -53,7 +57,34 @@ public class FakeTableReadService implements TableReadService, Serializable {
 
   @Override
   public Session createSession(CreateSessionRequest request) {
-    assertThat(request, equalTo(createSessionRequest));
+
+    if (createSessionRequest.hasTableReference()) {
+      TableReferenceProto.TableReference tableReference = createSessionRequest.getTableReference();
+      if (!Strings.isNullOrEmpty(tableReference.getProjectId())) {
+        assertThat(request.getTableReference().getProjectId(), is(tableReference.getProjectId()));
+      }
+      if (!Strings.isNullOrEmpty(tableReference.getDatasetId())) {
+        assertThat(request.getTableReference().getDatasetId(), is(tableReference.getDatasetId()));
+      }
+      if (!Strings.isNullOrEmpty(tableReference.getTableId())) {
+        assertThat(request.getTableReference().getTableId(), is(tableReference.getTableId()));
+      }
+    }
+
+    if (!Strings.isNullOrEmpty(createSessionRequest.getBillableProjectId())) {
+      assertThat(request.getBillableProjectId(), is(createSessionRequest.getBillableProjectId()));
+    }
+
+    if (createSessionRequest.hasReadOptions()) {
+      ReadOptions.TableReadOptions readOptions = createSessionRequest.getReadOptions();
+      if (readOptions.getSelectedFieldsCount() > 0) {
+        assertThat(readOptions.getSelectedFieldsList(), is(readOptions.getSelectedFieldsList()));
+      }
+      if (!Strings.isNullOrEmpty(readOptions.getSqlFilter())) {
+        assertThat(readOptions.getSqlFilter(), is(readOptions.getSqlFilter()));
+      }
+    }
+
     return session;
   }
 

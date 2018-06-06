@@ -33,6 +33,8 @@ import com.google.api.services.bigquery.model.TableRow;
 import com.google.api.services.bigquery.model.TableSchema;
 import com.google.api.services.bigquery.model.TimePartitioning;
 import com.google.auto.value.AutoValue;
+import com.google.cloud.bigquery.v3.ParallelRead;
+import com.google.cloud.bigquery.v3.ParallelRead.ReadLocation;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Predicates;
@@ -57,6 +59,7 @@ import org.apache.beam.sdk.coders.CoderRegistry;
 import org.apache.beam.sdk.coders.KvCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
+import org.apache.beam.sdk.extensions.protobuf.ProtoCoder;
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.io.FileSystems;
 import org.apache.beam.sdk.io.fs.MoveOptions;
@@ -69,6 +72,7 @@ import org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.TableSpecToTableRef;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.TimePartitioningToJson;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.DatasetService;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.JobService;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.TableReadService;
 import org.apache.beam.sdk.io.gcp.bigquery.DynamicDestinationsHelpers.ConstantSchemaDestinations;
 import org.apache.beam.sdk.io.gcp.bigquery.DynamicDestinationsHelpers.ConstantTimePartitioningDestinations;
 import org.apache.beam.sdk.io.gcp.bigquery.DynamicDestinationsHelpers.SchemaFromViewDestinations;
@@ -762,34 +766,6 @@ public class BigQueryIO {
     public PCollection<T> expand(PBegin input) {
       ValueProvider<TableReference> table = getTableProvider();
 
-      if (getMethod() == Method.BQ_PARALLEL_READ) {
-        checkArgument(
-            getTable() != null,
-            "Invalid BigQueryIO.Read: Table is required when using"
-                + " TypedRead.Method.BQ_PARALLEL_READ");
-        checkArgument(
-            getRowProtoParseFn() != null,
-            "Invalid BigQueryIO.Read: A row proto parseFn is required when using"
-                + " TypedRead.Method.BQ_PARALLEL_READ");
-        checkArgument(
-            getParseFn() == null,
-            "Invalid BigQueryIO.Read: Specifies an Avro parseFn, which only applies when using"
-                + " TypedRead.Method.GCS_EXPORT");
-      } else {
-        checkArgument(
-            getReadSessionOptions() == null,
-            "Invalid BigQueryIO.Read: Specifies read session options, which only apply when using"
-                + " TypedRead.Method.BQ_PARALLEL_READ");
-        checkArgument(
-            getParseFn() != null,
-            "Invalid BigQueryIO.Read: An Avro parseFn is required when using"
-                + " TypedRead.Method.GCS_EXPORT");
-        checkArgument(
-            getRowProtoParseFn() == null,
-            "Invalid BigQueryIO.Read: Specifies a row proto parseFn, which only applies when using"
-                + " TypedRead.Method.BQ_PARALLEL_READ");
-      }
-
       if (table != null) {
         checkArgument(getQuery() == null, "from() and fromQuery() are exclusive");
         checkArgument(
@@ -813,17 +789,27 @@ public class BigQueryIO {
         checkArgument(getUseLegacySql() != null, "useLegacySql should not be null if query is set");
       }
 
-      Pipeline p = input.getPipeline();
-      final Coder<T> coder = inferCoder(p.getCoderRegistry());
       if (getMethod() == Method.BQ_PARALLEL_READ) {
-        return p.apply(org.apache.beam.sdk.io.Read.from(BigQueryParallelReadTableSource.create(
-            getTableProvider(),
-            getRowProtoParseFn(),
-            coder,
-            getBigQueryServices(),
-            getReadSessionOptions())));
+        return expandForParallelRead(input);
       }
 
+      checkArgument(
+          getParseFn() != null,
+          "Invalid BigQueryIO.Read: An Avro parseFn is required when using"
+              + " TypedRead.Method.GCS_EXPORT");
+
+      checkArgument(
+          getRowProtoParseFn() == null,
+          "Invalid BigQueryIO.Read: Specifies a row proto parseFn, which only applies when using"
+              + " TypedRead.Method.BQ_PARALLEL_READ");
+
+      checkArgument(
+          getReadSessionOptions() == null,
+          "Invalid BigQueryIO.Read: Specifies read session options, which only apply when using"
+              + " TypedRead.Method.BQ_PARALLEL_READ");
+
+      Pipeline p = input.getPipeline();
+      final Coder<T> coder = inferCoder(p.getCoderRegistry());
       final PCollectionView<String> jobIdTokenView;
       PCollection<String> jobIdTokenCollection;
       PCollection<T> rows;
@@ -913,7 +899,7 @@ public class BigQueryIO {
             void cleanup(PassThroughThenCleanup.ContextContainer c) throws Exception {
               PipelineOptions options = c.getPipelineOptions();
               BigQueryOptions bqOptions = options.as(BigQueryOptions.class);
-              String jobUuid = c.getJobId();
+              String jobUuid = c.getSideInput();
               final String extractDestinationDir =
                   resolveTempLocation(bqOptions.getTempLocation(), "BigQueryExtractTemp", jobUuid);
               final String executingProject = bqOptions.getProject();
@@ -935,6 +921,145 @@ public class BigQueryIO {
             }
           };
       return rows.apply(new PassThroughThenCleanup<>(cleanupOperation, jobIdTokenView));
+    }
+
+    private PCollection<T> expandForParallelRead(PBegin input) {
+
+      checkArgument(
+          getRowProtoParseFn() != null,
+          "Invalid BigQueryIO.Read: A row proto parseFn is required when using"
+              + " TypedRead.Method.BQ_PARALLEL_READ");
+
+      checkArgument(
+          getParseFn() == null,
+          "Invalid BigQueryIO.Read: Specifies an Avro parseFn, which only applies when using"
+              + " TypedRead.Method.GCS_EXPORT");
+
+      Pipeline p = input.getPipeline();
+      final Coder<T> coder = inferCoder(p.getCoderRegistry());
+
+      // When using Method.BQ_PARALLEL_READ to read directly from a table, there are no temporary
+      // resources to clean up. Apply a Read transform to the pipeline and return.
+      if (getTableProvider() != null) {
+        return p.apply(
+            org.apache.beam.sdk.io.Read.from(
+                BigQueryParallelReadTableSource.create(
+                    getTableProvider(),
+                    getRowProtoParseFn(),
+                    coder,
+                    getBigQueryServices(),
+                    getReadSessionOptions())));
+      }
+
+      // When using Method.BQ_PARALLEL_READ to read the results of a query, the underlying
+      // dataset and table must remain live while the data is being read and then be cleaned up
+      // afterwards.
+      PCollection<String> queryResultTableCollection =
+          p.apply("TriggerJobIdCreation", Create.of("ignored"))
+              .apply("CreateJobId",
+                  MapElements.via(
+                      new SimpleFunction<String, String>() {
+                        @Override
+                        public String apply(String ignored) {
+                          return BigQueryHelpers.randomUUIDString();
+                        }
+                      }))
+              .apply("ExecuteQuery",
+                  ParDo.of(
+                      new DoFn<String, String>() {
+                        @ProcessElement
+                        public void processElement(ProcessContext c) throws Exception {
+                          PipelineOptions options = c.getPipelineOptions();
+                          BigQueryOptions bqOptions = options.as(BigQueryOptions.class);
+                          String jobUuid = c.element();
+                          BigQueryQueryHelper queryHelper = new BigQueryQueryHelper(
+                              getQuery(), getFlattenResults(), getUseLegacySql());
+                          TableReference queryResultTable = queryHelper.executeQuery(
+                              getBigQueryServices(), bqOptions, jobUuid);
+                          c.output(BigQueryHelpers.toJsonString(queryResultTable));
+                        }
+                      }));
+
+      queryResultTableCollection.setCoder(StringUtf8Coder.of());
+
+      final TupleTag<ParallelRead.Session> readSessionTag = new TupleTag<>();
+      final TupleTag<ParallelRead.ReadLocation> readLocationTag = new TupleTag<>();
+
+      PCollectionTuple tuple = queryResultTableCollection
+          .apply("CreateReadSession",
+              ParDo.of(
+                  new DoFn<String, ReadLocation>() {
+                    @ProcessElement
+                    public void processElement(ProcessContext c) throws Exception {
+                      PipelineOptions options = c.getPipelineOptions();
+                      BigQueryOptions bqOptions = options.as(BigQueryOptions.class);
+                      TableReference queryResultTable =
+                          BigQueryHelpers.fromJsonString(c.element(), TableReference.class);
+                      TableReadService tableReadService =
+                          getBigQueryServices().getTableReadService(bqOptions);
+                      ParallelRead.Session readSession = BigQueryHelpers.createReadSession(
+                          tableReadService, queryResultTable, 0, getReadSessionOptions());
+                      c.output(readSessionTag, readSession);
+                      for (ParallelRead.ReadLocation readLocation :
+                          readSession.getInitialReadLocationsList()) {
+                        c.output(readLocation);
+                      }
+                    }
+                  })
+                  .withOutputTags(readLocationTag, TupleTagList.of(readSessionTag)));
+
+      tuple.get(readSessionTag).setCoder(ProtoCoder.of(ParallelRead.Session.class));
+      tuple.get(readLocationTag).setCoder(ProtoCoder.of(ParallelRead.ReadLocation.class));
+
+      final PCollectionView<ParallelRead.Session> readSessionView =
+          tuple.get(readSessionTag).apply("ViewReadSession", View.asSingleton());
+
+      PCollection<T> rows = tuple
+          .get(readLocationTag)
+          .apply(Reshuffle.viaRandomKey())
+          .apply("ReadFromTemporaryTable",
+              ParDo.of(
+                  new DoFn<ParallelRead.ReadLocation, T>() {
+                    @ProcessElement
+                    public void processElement(ProcessContext c) throws Exception {
+                      BigQueryParallelReadStreamSource<T> source =
+                          BigQueryParallelReadStreamSource.create(
+                              getBigQueryServices(),
+                              getRowProtoParseFn(),
+                              coder,
+                              getReadSessionOptions(),
+                              c.sideInput(readSessionView),
+                              c.element(),
+                              null);
+                      BoundedSource.BoundedReader<T> reader =
+                          source.createReader(c.getPipelineOptions());
+                      for (boolean more = reader.start(); more; more = reader.advance()) {
+                        c.output(reader.getCurrent());
+                      }
+                    }
+                  }).withSideInputs(readSessionView));
+
+      rows.setCoder(coder);
+
+      final PCollectionView<String> queryResultTableView =
+          queryResultTableCollection.apply("ViewTemporaryTable", View.asSingleton());
+
+      PassThroughThenCleanup.CleanupOperation cleanupOperation =
+          new PassThroughThenCleanup.CleanupOperation() {
+            @Override
+            void cleanup(PassThroughThenCleanup.ContextContainer c) throws Exception {
+              PipelineOptions options = c.getPipelineOptions();
+              BigQueryOptions bqOptions = options.as(BigQueryOptions.class);
+              TableReference queryResultTable =
+                  BigQueryHelpers.fromJsonString(c.getSideInput(), TableReference.class);
+              DatasetService datasetService = getBigQueryServices().getDatasetService(bqOptions);
+              datasetService.deleteTable(queryResultTable);
+              datasetService.deleteDataset(
+                  queryResultTable.getProjectId(), queryResultTable.getDatasetId());
+            }
+          };
+
+      return rows.apply(new PassThroughThenCleanup<>(cleanupOperation, queryResultTableView));
     }
 
     @Override
