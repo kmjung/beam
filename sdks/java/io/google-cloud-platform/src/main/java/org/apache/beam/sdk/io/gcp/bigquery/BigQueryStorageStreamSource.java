@@ -37,18 +37,18 @@ import org.slf4j.LoggerFactory;
  * A {@link BoundedSource} to read from existing read streams using the BigQuery parallel read API.
  */
 @Experimental(Experimental.Kind.SOURCE_SINK)
-public class BigQueryParallelReadStreamSource<T> extends BoundedSource<T> {
+public class BigQueryStorageStreamSource<T> extends BoundedSource<T> {
 
-  private static final Logger LOG = LoggerFactory.getLogger(BigQueryParallelReadStreamSource.class);
+  private static final Logger LOG = LoggerFactory.getLogger(BigQueryStorageStreamSource.class);
 
-  static <T> BigQueryParallelReadStreamSource<T> create(
+  static <T> BigQueryStorageStreamSource<T> create(
       BigQueryServices bqServices,
       SerializableFunction<SchemaAndRowProto, T> parseFn,
       Coder<T> coder,
       Storage.ReadSession readSession,
       Storage.StreamPosition streamPosition,
       Long readSizeBytes) {
-    return new BigQueryParallelReadStreamSource<>(
+    return new BigQueryStorageStreamSource<>(
         bqServices,
         parseFn,
         coder,
@@ -64,7 +64,7 @@ public class BigQueryParallelReadStreamSource<T> extends BoundedSource<T> {
   private final Storage.StreamPosition streamPosition;
   private final Long readSizeBytes;
 
-  BigQueryParallelReadStreamSource(
+  BigQueryStorageStreamSource(
       BigQueryServices bqServices,
       SerializableFunction<SchemaAndRowProto, T> parseFn,
       Coder<T> coder,
@@ -93,7 +93,7 @@ public class BigQueryParallelReadStreamSource<T> extends BoundedSource<T> {
 
   @Override
   public BoundedReader<T> createReader(PipelineOptions pipelineOptions) {
-    return new BigQueryParallelReadStreamReader<>(
+    return new BigQueryStorageStreamReader<>(
         readSession,
         streamPosition,
         parseFn,
@@ -111,7 +111,7 @@ public class BigQueryParallelReadStreamSource<T> extends BoundedSource<T> {
    * Iterates over all rows assigned to a particular reader in a read session.
    */
   @Experimental(Experimental.Kind.SOURCE_SINK)
-  static class BigQueryParallelReadStreamReader<T> extends BoundedReader<T> {
+  static class BigQueryStorageStreamReader<T> extends BoundedReader<T> {
 
     private Storage.ReadSession readSession;
     private final BigQueryServices client;
@@ -123,7 +123,7 @@ public class BigQueryParallelReadStreamSource<T> extends BoundedSource<T> {
     private BigQueryOptions options;
     private Row currentRow;
 
-    BigQueryParallelReadStreamReader(
+    BigQueryStorageStreamReader(
         Storage.ReadSession readSession,
         Storage.StreamPosition streamPosition,
         SerializableFunction<SchemaAndRowProto, T> parseFn,

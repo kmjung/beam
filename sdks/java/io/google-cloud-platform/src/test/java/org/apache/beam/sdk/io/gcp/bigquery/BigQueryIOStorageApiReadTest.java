@@ -84,7 +84,7 @@ import org.junit.runners.model.Statement;
  * Tests for {@link BigQueryIO#readViaRowProto} and related functionality.
  */
 @RunWith(JUnit4.class)
-public class BigQueryIOParallelReadTest {
+public class BigQueryIOStorageApiReadTest {
 
   private static final String DEFAULT_TABLE_REFERENCE_STRING =
       "foo.com:project-id:dataset_id.table_id";
@@ -221,7 +221,7 @@ public class BigQueryIOParallelReadTest {
     assertEquals(tableId, typedRead.getTable().getTableId());
     assertNull(typedRead.getQuery());
     assertEquals(validate, typedRead.getValidate());
-    assertEquals(Method.BQ_PARALLEL_READ, typedRead.getMethod());
+    assertEquals(Method.BQ_STORAGE_READ, typedRead.getMethod());
   }
 
   private void checkTypedReadQueryObject(
@@ -235,7 +235,7 @@ public class BigQueryIOParallelReadTest {
   public void testBuildTableSourceWithNullParseFn() {
     thrown.expect(IllegalArgumentException.class);
     thrown.expectMessage(
-        "A row proto parseFn is required when using TypedRead.Method.BQ_PARALLEL_READ");
+        "A row proto parseFn is required when using TypedRead.Method.BQ_STORAGE_READ");
     pipeline.apply(BigQueryIO.readViaRowProto(null)
         .from(DEFAULT_TABLE_REFERENCE_STRING));
     pipeline.run();
@@ -245,7 +245,7 @@ public class BigQueryIOParallelReadTest {
   public void testBuildQuerySourceWithNullParseFn() {
     thrown.expect(IllegalArgumentException.class);
     thrown.expectMessage(
-        "A row proto parseFn is required when using TypedRead.Method.BQ_PARALLEL_READ");
+        "A row proto parseFn is required when using TypedRead.Method.BQ_STORAGE_READ");
     pipeline.apply(BigQueryIO.readViaRowProto(null)
         .fromQuery("SELECT * FROM my_table"));
     pipeline.run();
@@ -339,7 +339,7 @@ public class BigQueryIOParallelReadTest {
     fakeDatasetService.createDataset(DEFAULT_PROJECT_ID, DEFAULT_DATASET_ID, "", "", null);
     fakeDatasetService.createTable(table);
 
-    BoundedSource<Row> source = BigQueryParallelReadTableSource.create(
+    BoundedSource<Row> source = BigQueryStorageTableSource.create(
         ValueProvider.StaticValueProvider.of(defaultTableReference),
         SchemaAndRowProto::getRow,
         ProtoCoder.of(Row.class),
@@ -354,7 +354,7 @@ public class BigQueryIOParallelReadTest {
   public void testTableSourceEstimatedSizeWithNullTable() throws Exception {
     fakeDatasetService.createDataset(DEFAULT_PROJECT_ID, DEFAULT_DATASET_ID, "", "", null);
 
-    BoundedSource<Row> source = BigQueryParallelReadTableSource.create(
+    BoundedSource<Row> source = BigQueryStorageTableSource.create(
         ValueProvider.StaticValueProvider.of(defaultTableReference),
         SchemaAndRowProto::getRow,
         ProtoCoder.of(Row.class),
@@ -373,7 +373,7 @@ public class BigQueryIOParallelReadTest {
 
     TableReference tableReference =
         new TableReference().setDatasetId(DEFAULT_DATASET_ID).setTableId(DEFAULT_TABLE_ID);
-    BoundedSource<Row> source = BigQueryParallelReadTableSource.create(
+    BoundedSource<Row> source = BigQueryStorageTableSource.create(
         ValueProvider.StaticValueProvider.of(tableReference),
         SchemaAndRowProto::getRow,
         ProtoCoder.of(Row.class),
@@ -426,7 +426,7 @@ public class BigQueryIOParallelReadTest {
 
     fakeTableReadService.setCreateSessionResult(createSessionRequest, sessionBuilder.build());
 
-    BoundedSource<Row> source = BigQueryParallelReadTableSource.create(
+    BoundedSource<Row> source = BigQueryStorageTableSource.create(
         ValueProvider.StaticValueProvider.of(defaultTableReference),
         SchemaAndRowProto::getRow,
         ProtoCoder.of(Row.class),
@@ -460,7 +460,7 @@ public class BigQueryIOParallelReadTest {
 
     TableReference tableReference =
         new TableReference().setDatasetId(DEFAULT_DATASET_ID).setTableId(DEFAULT_TABLE_ID);
-    BoundedSource<Row> source = BigQueryParallelReadTableSource.create(
+    BoundedSource<Row> source = BigQueryStorageTableSource.create(
         ValueProvider.StaticValueProvider.of(tableReference),
         SchemaAndRowProto::getRow,
         ProtoCoder.of(Row.class),
@@ -489,7 +489,7 @@ public class BigQueryIOParallelReadTest {
     ReadSession readSession = ReadSession.newBuilder().setName("session").build();
     fakeTableReadService.setCreateSessionResult(createReadSessionRequest, readSession);
 
-    BoundedSource<Row> source = BigQueryParallelReadTableSource.create(
+    BoundedSource<Row> source = BigQueryStorageTableSource.create(
         ValueProvider.StaticValueProvider.of(defaultTableReference),
         SchemaAndRowProto::getRow,
         ProtoCoder.of(Row.class),

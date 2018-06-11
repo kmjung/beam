@@ -41,11 +41,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * A {@link BoundedSource} for reading BigQuery tables using the BigQuery parallel read API.
+ * A {@link BoundedSource} for reading BigQuery tables using the BigQuery Storage API.
  */
-class BigQueryParallelReadTableSource<T> extends BoundedSource<T> {
+class BigQueryStorageTableSource<T> extends BoundedSource<T> {
 
-  private static final Logger LOG = LoggerFactory.getLogger(BigQueryParallelReadTableSource.class);
+  private static final Logger LOG = LoggerFactory.getLogger(BigQueryStorageTableSource.class);
 
   /**
    * The maximum number of readers which will be requested when creating a BigQuery read session as
@@ -62,16 +62,16 @@ class BigQueryParallelReadTableSource<T> extends BoundedSource<T> {
   private static final int MIN_SPLIT_COUNT = 10;
 
   /**
-   * This method creates a new {@link BigQueryParallelReadTableSource} with no initial read session
+   * This method creates a new {@link BigQueryStorageTableSource} with no initial read session
    * or read location.
    */
-  public static <T> BigQueryParallelReadTableSource<T> create(
+  public static <T> BigQueryStorageTableSource<T> create(
       ValueProvider<TableReference> tableRefProvider,
       SerializableFunction<SchemaAndRowProto, T> parseFn,
       Coder<T> coder,
       BigQueryServices bqServices,
       ReadSessionOptions readSessionOptions) {
-    return new BigQueryParallelReadTableSource<>(
+    return new BigQueryStorageTableSource<>(
         NestedValueProvider.of(
             checkNotNull(tableRefProvider, "tableRefProvider"),
             new TableRefToJson()),
@@ -89,7 +89,7 @@ class BigQueryParallelReadTableSource<T> extends BoundedSource<T> {
 
   private transient Long cachedReadSizeBytes;
 
-  private BigQueryParallelReadTableSource(
+  private BigQueryStorageTableSource(
       ValueProvider<String> jsonTableRefProvider,
       SerializableFunction<SchemaAndRowProto, T> parseFn,
       Coder<T> coder,
@@ -133,7 +133,7 @@ class BigQueryParallelReadTableSource<T> extends BoundedSource<T> {
     Long readSizeBytes = tableSizeBytes / readSession.getStreamsCount();
     List<BoundedSource<T>> sources = new ArrayList<>(readSession.getStreamsCount());
     for (Storage.Stream stream : readSession.getStreamsList()) {
-      sources.add(new BigQueryParallelReadStreamSource<>(
+      sources.add(new BigQueryStorageStreamSource<>(
           bqServices,
           parseFn,
           coder,
