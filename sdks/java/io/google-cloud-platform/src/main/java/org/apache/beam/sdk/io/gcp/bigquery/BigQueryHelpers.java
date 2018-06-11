@@ -25,8 +25,8 @@ import com.google.api.services.bigquery.model.JobStatus;
 import com.google.api.services.bigquery.model.TableReference;
 import com.google.api.services.bigquery.model.TableSchema;
 import com.google.api.services.bigquery.model.TimePartitioning;
-import com.google.cloud.bigquery.v3.ParallelRead;
-import com.google.cloud.bigquery.v3.ReadOptions;
+import com.google.cloud.bigquery.storage.v1alpha1.ReadOptions;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage;
 import com.google.cloud.bigquery.v3.TableReferenceProto;
 import com.google.cloud.hadoop.util.ApiErrorExtractor;
 import com.google.common.annotations.VisibleForTesting;
@@ -250,27 +250,27 @@ public class BigQueryHelpers {
     return jobId;
   }
 
-  static ParallelRead.Session createReadSession(
+  static Storage.ReadSession createReadSession(
       TableReadService tableReadService,
       TableReference tableReference,
-      int readerCount,
+      int requestedStreams,
       ReadSessionOptions readSessionOptions) {
 
-    ParallelRead.CreateSessionRequest.Builder requestBuilder =
-        ParallelRead.CreateSessionRequest.newBuilder()
+    Storage.CreateReadSessionRequest.Builder requestBuilder =
+        Storage.CreateReadSessionRequest.newBuilder()
             .setTableReference(
                 TableReferenceProto.TableReference.newBuilder()
                     .setProjectId(tableReference.getProjectId())
                     .setDatasetId(tableReference.getDatasetId())
                     .setTableId(tableReference.getTableId()))
-            .setReaderCount(readerCount);
+            .setRequestedStreams(requestedStreams);
 
     if (readSessionOptions != null) {
       ReadOptions.TableReadOptions.Builder readOptionsBuilder = null;
       String sqlFilter = readSessionOptions.getSqlFilter();
       if (!Strings.isNullOrEmpty(sqlFilter)) {
         readOptionsBuilder = ReadOptions.TableReadOptions.newBuilder()
-            .setSqlFilter(sqlFilter);
+            .setFilter(sqlFilter);
       }
 
       List<String> selectedFields = readSessionOptions.getSelectedFields();

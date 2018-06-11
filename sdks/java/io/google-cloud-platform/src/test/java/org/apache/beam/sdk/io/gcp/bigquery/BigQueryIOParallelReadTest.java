@@ -32,14 +32,13 @@ import com.google.api.services.bigquery.model.TableFieldSchema;
 import com.google.api.services.bigquery.model.TableReference;
 import com.google.api.services.bigquery.model.TableRow;
 import com.google.api.services.bigquery.model.TableSchema;
-import com.google.cloud.bigquery.v3.ParallelRead.CreateSessionRequest;
-import com.google.cloud.bigquery.v3.ParallelRead.ReadLocation;
-import com.google.cloud.bigquery.v3.ParallelRead.ReadOptions;
-import com.google.cloud.bigquery.v3.ParallelRead.ReadRowsRequest;
-import com.google.cloud.bigquery.v3.ParallelRead.ReadRowsResponse;
-import com.google.cloud.bigquery.v3.ParallelRead.Reader;
-import com.google.cloud.bigquery.v3.ParallelRead.Session;
-import com.google.cloud.bigquery.v3.ReadOptions.TableReadOptions;
+import com.google.cloud.bigquery.storage.v1alpha1.ReadOptions.TableReadOptions;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.CreateReadSessionRequest;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsRequest;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsResponse;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadSession;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.Stream;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.StreamPosition;
 import com.google.cloud.bigquery.v3.RowOuterClass.Row;
 import com.google.cloud.bigquery.v3.RowOuterClass.StructField;
 import com.google.cloud.bigquery.v3.RowOuterClass.StructType;
@@ -394,12 +393,12 @@ public class BigQueryIOParallelReadTest {
   }
 
   @Test
-  public void testTableSourceInitialSplitMaxReaderCount() throws Exception {
+  public void testTableSourceInitialSplitMaxStreamCount() throws Exception {
     runTestTableSourceInitialSplit(16L, 10000);
   }
 
   @Test
-  public void testTableSourceInitialSplitMinReaderCount() throws Exception {
+  public void testTableSourceInitialSplitMinStreamCount() throws Exception {
     runTestTableSourceInitialSplit(TABLE_SIZE_BYTES, 10);
   }
 
@@ -409,20 +408,20 @@ public class BigQueryIOParallelReadTest {
   }
 
   private void runTestTableSourceInitialSplit(
-      long desiredBundleSizeBytes, int expectedReaderCount) throws Exception {
+      long desiredBundleSizeBytes, int expectedStreamCount) throws Exception {
     Table table = new Table().setTableReference(defaultTableReference)
         .setNumBytes(TABLE_SIZE_BYTES);
     fakeDatasetService.createDataset(DEFAULT_PROJECT_ID, DEFAULT_DATASET_ID, "", "", null);
     fakeDatasetService.createTable(table);
 
-    CreateSessionRequest createSessionRequest = CreateSessionRequest.newBuilder()
+    CreateReadSessionRequest createSessionRequest = CreateReadSessionRequest.newBuilder()
         .setTableReference(defaultTableReferenceProto)
-        .setReaderCount(expectedReaderCount)
+        .setRequestedStreams(expectedStreamCount)
         .build();
 
-    Session.Builder sessionBuilder = Session.newBuilder().setName("session");
+    ReadSession.Builder sessionBuilder = ReadSession.newBuilder().setName("session");
     for (int i = 0; i < 50; i++) {
-      sessionBuilder.addInitialReadLocations(ReadLocation.newBuilder());
+      sessionBuilder.addStreams(Stream.newBuilder());
     }
 
     fakeTableReadService.setCreateSessionResult(createSessionRequest, sessionBuilder.build());
@@ -447,17 +446,17 @@ public class BigQueryIOParallelReadTest {
     fakeDatasetService.createDataset(DEFAULT_PROJECT_ID, DEFAULT_DATASET_ID, "", "", null);
     fakeDatasetService.createTable(table);
 
-    CreateSessionRequest createSessionRequest = CreateSessionRequest.newBuilder()
+    CreateReadSessionRequest createReadSessionRequest = CreateReadSessionRequest.newBuilder()
         .setTableReference(defaultTableReferenceProto)
-        .setReaderCount(1024)
+        .setRequestedStreams(1024)
         .build();
 
-    Session session = Session.newBuilder()
+    ReadSession readSession = ReadSession.newBuilder()
         .setName("session")
-        .addInitialReadLocations(ReadLocation.newBuilder())
+        .addStreams(Stream.newBuilder())
         .build();
 
-    fakeTableReadService.setCreateSessionResult(createSessionRequest, session);
+    fakeTableReadService.setCreateSessionResult(createReadSessionRequest, readSession);
 
     TableReference tableReference =
         new TableReference().setDatasetId(DEFAULT_DATASET_ID).setTableId(DEFAULT_TABLE_ID);
@@ -481,14 +480,14 @@ public class BigQueryIOParallelReadTest {
     fakeDatasetService.createDataset(DEFAULT_PROJECT_ID, DEFAULT_DATASET_ID, "", "", null);
     fakeDatasetService.createTable(table);
 
-    CreateSessionRequest createSessionRequest = CreateSessionRequest.newBuilder()
+    CreateReadSessionRequest createReadSessionRequest = CreateReadSessionRequest.newBuilder()
         .setTableReference(defaultTableReferenceProto)
-        .setReaderCount(10)
+        .setRequestedStreams(10)
         .build();
 
     // Return a session with no read locations.
-    Session session = Session.newBuilder().setName("session").build();
-    fakeTableReadService.setCreateSessionResult(createSessionRequest, session);
+    ReadSession readSession = ReadSession.newBuilder().setName("session").build();
+    fakeTableReadService.setCreateSessionResult(createReadSessionRequest, readSession);
 
     BoundedSource<Row> source = BigQueryParallelReadTableSource.create(
         ValueProvider.StaticValueProvider.of(defaultTableReference),
@@ -516,25 +515,24 @@ public class BigQueryIOParallelReadTest {
         BigQueryIO.readViaRowProto(parseFn).inferCoder(CoderRegistry.createDefault()));
   }
 
-  private final CreateSessionRequest defaultCreateSessionRequest =
-      CreateSessionRequest.newBuilder()
+  private final CreateReadSessionRequest defaultCreateReadSessionRequest =
+      CreateReadSessionRequest.newBuilder()
           .setTableReference(TableReferenceProto.TableReference.newBuilder()
               .setProjectId(DEFAULT_PROJECT_ID)
               .setDatasetId(DEFAULT_DATASET_ID)
               .setTableId(DEFAULT_TABLE_ID))
-          .setReaderCount(10)
+          .setRequestedStreams(10)
           .build();
 
   private final ReadRowsRequest defaultReadRowsRequest =
       ReadRowsRequest.newBuilder()
-          .setReadLocation(ReadLocation.newBuilder().setReader(
-              Reader.newBuilder().setName("reader name")))
-          .setOptions(ReadOptions.newBuilder().setMaxRows(1000))
+          .setReadPosition(StreamPosition.newBuilder().setStream(
+              Stream.newBuilder().setName("stream name")))
           .build();
 
   @Test
   public void testReadFromTableSource() throws Exception {
-    runTestReadFromTableSource(null, defaultCreateSessionRequest, defaultReadRowsRequest);
+    runTestReadFromTableSource(null, defaultCreateReadSessionRequest, defaultReadRowsRequest);
   }
 
   @Test
@@ -544,12 +542,13 @@ public class BigQueryIOParallelReadTest {
         .setSqlFilter("SQL filter")
         .build();
 
-    CreateSessionRequest createSessionRequest =
-        CreateSessionRequest.newBuilder(defaultCreateSessionRequest)
-            .setReadOptions(TableReadOptions.newBuilder().setSqlFilter("SQL filter"))
+    CreateReadSessionRequest createReadSessionRequest =
+        CreateReadSessionRequest.newBuilder(defaultCreateReadSessionRequest)
+            .setReadOptions(TableReadOptions.newBuilder().setFilter("SQL filter"))
             .build();
 
-    runTestReadFromTableSource(readSessionOptions, createSessionRequest, defaultReadRowsRequest);
+    runTestReadFromTableSource(readSessionOptions, createReadSessionRequest,
+        defaultReadRowsRequest);
   }
 
   @Test
@@ -559,14 +558,15 @@ public class BigQueryIOParallelReadTest {
         .setSelectedFields(Lists.newArrayList("field 1", "field 2"))
         .build();
 
-    CreateSessionRequest createSessionRequest =
-        CreateSessionRequest.newBuilder(defaultCreateSessionRequest)
+    CreateReadSessionRequest createReadSessionRequest =
+        CreateReadSessionRequest.newBuilder(defaultCreateReadSessionRequest)
             .setReadOptions(TableReadOptions.newBuilder()
                 .addSelectedFields("field 1")
                 .addSelectedFields("field 2"))
             .build();
 
-    runTestReadFromTableSource(readSessionOptions, createSessionRequest, defaultReadRowsRequest);
+    runTestReadFromTableSource(readSessionOptions, createReadSessionRequest,
+        defaultReadRowsRequest);
   }
 
   @Test
@@ -577,29 +577,16 @@ public class BigQueryIOParallelReadTest {
         .setSelectedFields(Lists.newArrayList("field 1", "field 2"))
         .build();
 
-    CreateSessionRequest createSessionRequest =
-        CreateSessionRequest.newBuilder(defaultCreateSessionRequest)
+    CreateReadSessionRequest createReadSessionRequest =
+        CreateReadSessionRequest.newBuilder(defaultCreateReadSessionRequest)
             .setReadOptions(TableReadOptions.newBuilder()
-                .setSqlFilter("SQL filter")
+                .setFilter("SQL filter")
                 .addSelectedFields("field 1")
                 .addSelectedFields("field 2"))
             .build();
 
-    runTestReadFromTableSource(readSessionOptions, createSessionRequest, defaultReadRowsRequest);
-  }
-
-  @Test
-  public void testReadFromTableSourceWithBatchSize() throws Exception {
-
-    ReadSessionOptions readSessionOptions = ReadSessionOptions.builder()
-        .setRowBatchSize(500)
-        .build();
-
-    ReadRowsRequest readRowsRequest = ReadRowsRequest.newBuilder(defaultReadRowsRequest)
-        .setOptions(ReadOptions.newBuilder().setMaxRows(500))
-        .build();
-
-    runTestReadFromTableSource(readSessionOptions, defaultCreateSessionRequest, readRowsRequest);
+    runTestReadFromTableSource(readSessionOptions, createReadSessionRequest,
+        defaultReadRowsRequest);
   }
 
   @Test
@@ -608,44 +595,38 @@ public class BigQueryIOParallelReadTest {
     ReadSessionOptions readSessionOptions = ReadSessionOptions.builder()
         .setSqlFilter("SQL filter")
         .setSelectedFields(Lists.newArrayList("field 1", "field 2"))
-        .setRowBatchSize(500)
         .build();
 
-    CreateSessionRequest createSessionRequest =
-        CreateSessionRequest.newBuilder(defaultCreateSessionRequest)
+    CreateReadSessionRequest createReadSessionRequest =
+        CreateReadSessionRequest.newBuilder(defaultCreateReadSessionRequest)
             .setReadOptions(TableReadOptions.newBuilder()
-                .setSqlFilter("SQL filter")
+                .setFilter("SQL filter")
                 .addSelectedFields("field 1")
                 .addSelectedFields("field 2"))
             .build();
 
     ReadRowsRequest readRowsRequest = ReadRowsRequest.newBuilder(defaultReadRowsRequest)
-        .setOptions(ReadOptions.newBuilder().setMaxRows(500))
         .build();
 
-    runTestReadFromTableSource(readSessionOptions, createSessionRequest, readRowsRequest);
+    runTestReadFromTableSource(readSessionOptions, createReadSessionRequest, readRowsRequest);
   }
 
   private void runTestReadFromTableSource(
       ReadSessionOptions readSessionOptions,
-      CreateSessionRequest createSessionRequest,
+      CreateReadSessionRequest createReadSessionRequest,
       ReadRowsRequest readRowsRequest)
       throws Exception {
 
-    Session session = Session.newBuilder()
+    ReadSession readSession = ReadSession.newBuilder()
         .setName("session name")
         .setProjectedSchema(defaultStructType)
-        .addInitialReadLocations(ReadLocation.newBuilder()
-            .setReader(Reader.newBuilder().setName("reader name")))
+        .addStreams(Stream.newBuilder().setName("stream name"))
         .build();
 
-    fakeTableReadService.setCreateSessionResult(createSessionRequest, session);
+    fakeTableReadService.setCreateSessionResult(createReadSessionRequest, readSession);
 
     List<ReadRowsResponse> readRowsResponses = Lists.newArrayList(
         ReadRowsResponse.newBuilder()
-            .setReadLocation(ReadLocation.newBuilder()
-                .setReader(Reader.newBuilder().setName("reader name"))
-                .setToken("read token"))
             .addRows(Row.newBuilder().setValue(StructValue.newBuilder()
                 .addFields(Value.newBuilder().setStringValue("a"))
                 .addFields(Value.newBuilder().setInt64Value(1L))))
@@ -685,7 +666,7 @@ public class BigQueryIOParallelReadTest {
 
   @Test
   public void testReadFromQuerySource() throws Exception {
-    runTestReadFromQuerySource(null, defaultCreateSessionRequest, defaultReadRowsRequest);
+    runTestReadFromQuerySource(null, defaultCreateReadSessionRequest, defaultReadRowsRequest);
   }
 
   @Test
@@ -694,12 +675,13 @@ public class BigQueryIOParallelReadTest {
     ReadSessionOptions readSessionOptions =
         ReadSessionOptions.builder().setSqlFilter("SQL filter").build();
 
-    CreateSessionRequest createSessionRequest =
-        CreateSessionRequest.newBuilder(defaultCreateSessionRequest)
-            .setReadOptions(TableReadOptions.newBuilder().setSqlFilter("SQL filter"))
+    CreateReadSessionRequest createReadSessionRequest =
+        CreateReadSessionRequest.newBuilder(defaultCreateReadSessionRequest)
+            .setReadOptions(TableReadOptions.newBuilder().setFilter("SQL filter"))
             .build();
 
-    runTestReadFromQuerySource(readSessionOptions, createSessionRequest, defaultReadRowsRequest);
+    runTestReadFromQuerySource(readSessionOptions, createReadSessionRequest,
+        defaultReadRowsRequest);
   }
 
   @Test
@@ -711,14 +693,15 @@ public class BigQueryIOParallelReadTest {
                 Lists.newArrayList("field 1", "field 2"))
             .build();
 
-    CreateSessionRequest createSessionRequest =
-        CreateSessionRequest.newBuilder(defaultCreateSessionRequest)
+    CreateReadSessionRequest createReadSessionRequest =
+        CreateReadSessionRequest.newBuilder(defaultCreateReadSessionRequest)
             .setReadOptions(TableReadOptions.newBuilder()
                 .addSelectedFields("field 1")
                 .addSelectedFields("field 2"))
             .build();
 
-    runTestReadFromQuerySource(readSessionOptions, createSessionRequest, defaultReadRowsRequest);
+    runTestReadFromQuerySource(readSessionOptions, createReadSessionRequest,
+        defaultReadRowsRequest);
   }
 
   @Test
@@ -729,28 +712,16 @@ public class BigQueryIOParallelReadTest {
         .setSelectedFields(Lists.newArrayList("field 1", "field 2"))
         .build();
 
-    CreateSessionRequest createSessionRequest =
-        CreateSessionRequest.newBuilder(defaultCreateSessionRequest)
+    CreateReadSessionRequest createReadSessionRequest =
+        CreateReadSessionRequest.newBuilder(defaultCreateReadSessionRequest)
             .setReadOptions(TableReadOptions.newBuilder()
-                .setSqlFilter("SQL filter")
+                .setFilter("SQL filter")
                 .addSelectedFields("field 1")
                 .addSelectedFields("field 2"))
             .build();
 
-    runTestReadFromQuerySource(readSessionOptions, createSessionRequest, defaultReadRowsRequest);
-  }
-
-  @Test
-  public void testReadFromQuerySourceWithBatchSize() throws Exception {
-
-    ReadSessionOptions readSessionOptions =
-        ReadSessionOptions.builder().setRowBatchSize(500).build();
-
-    ReadRowsRequest readRowsRequest = ReadRowsRequest.newBuilder(defaultReadRowsRequest)
-        .setOptions(ReadOptions.newBuilder().setMaxRows(500))
-        .build();
-
-    runTestReadFromQuerySource(readSessionOptions, defaultCreateSessionRequest, readRowsRequest);
+    runTestReadFromQuerySource(readSessionOptions, createReadSessionRequest,
+        defaultReadRowsRequest);
   }
 
   @Test
@@ -759,28 +730,26 @@ public class BigQueryIOParallelReadTest {
     ReadSessionOptions readSessionOptions = ReadSessionOptions.builder()
         .setSqlFilter("SQL filter")
         .setSelectedFields(Lists.newArrayList("field 1", "field 2"))
-        .setRowBatchSize(500)
         .build();
 
-    CreateSessionRequest createSessionRequest =
-        CreateSessionRequest.newBuilder(defaultCreateSessionRequest)
+    CreateReadSessionRequest createReadSessionRequest =
+        CreateReadSessionRequest.newBuilder(defaultCreateReadSessionRequest)
             .setReadOptions(TableReadOptions.newBuilder()
-                .setSqlFilter("SQL filter")
+                .setFilter("SQL filter")
                 .addSelectedFields("field 1")
                 .addSelectedFields("field 2"))
             .build();
 
     ReadRowsRequest readRowsRequest =
         ReadRowsRequest.newBuilder(defaultReadRowsRequest)
-            .setOptions(ReadOptions.newBuilder().setMaxRows(500))
             .build();
 
-    runTestReadFromQuerySource(readSessionOptions, createSessionRequest, readRowsRequest);
+    runTestReadFromQuerySource(readSessionOptions, createReadSessionRequest, readRowsRequest);
   }
 
   private void runTestReadFromQuerySource(
       ReadSessionOptions readSessionOptions,
-      CreateSessionRequest createSessionRequest,
+      CreateReadSessionRequest createReadSessionRequest,
       ReadRowsRequest readRowsRequest)
       throws Exception {
 
@@ -823,26 +792,22 @@ public class BigQueryIOParallelReadTest {
                 .setTotalBytesProcessed(TABLE_SIZE_BYTES)
                 .setReferencedTables(ImmutableList.of(tempTableReference))));
 
-    CreateSessionRequest expectedCreateSessionRequest =
-        CreateSessionRequest.newBuilder(createSessionRequest)
+    CreateReadSessionRequest expectedCreateReadSessionRequest =
+        CreateReadSessionRequest.newBuilder(createReadSessionRequest)
             .setTableReference(TableReferenceProto.TableReference.newBuilder()
                 .setProjectId(tempTableReference.getProjectId()))
             .build();
 
-    Session session = Session.newBuilder()
+    ReadSession readSession = ReadSession.newBuilder()
         .setName("session name")
         .setProjectedSchema(defaultStructType)
-        .addInitialReadLocations(ReadLocation.newBuilder()
-            .setReader(Reader.newBuilder().setName("reader name")))
+        .addStreams(Stream.newBuilder().setName("stream name"))
         .build();
 
-    fakeTableReadService.setCreateSessionResult(expectedCreateSessionRequest, session);
+    fakeTableReadService.setCreateSessionResult(expectedCreateReadSessionRequest, readSession);
 
     List<ReadRowsResponse> readRowsResponses = Lists.newArrayList(
         ReadRowsResponse.newBuilder()
-            .setReadLocation(ReadLocation.newBuilder()
-                .setReader(Reader.newBuilder().setName("reader name"))
-                .setToken("read token"))
             .addRows(Row.newBuilder().setValue(StructValue.newBuilder()
                 .addFields(Value.newBuilder().setStringValue("a"))
                 .addFields(Value.newBuilder().setInt64Value(1L))))

@@ -23,7 +23,7 @@ import static com.google.common.base.Preconditions.checkState;
 
 import com.google.api.services.bigquery.model.Table;
 import com.google.api.services.bigquery.model.TableReference;
-import com.google.cloud.bigquery.v3.ParallelRead;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
@@ -120,26 +120,27 @@ class BigQueryParallelReadTableSource<T> extends BoundedSource<T> {
       readerCount = MIN_SPLIT_COUNT;
     }
 
-    ParallelRead.Session readSession = BigQueryHelpers.createReadSession(
+    Storage.ReadSession readSession = BigQueryHelpers.createReadSession(
         bqServices.getTableReadService(bqOptions),
         tableReference,
         readerCount,
         readSessionOptions);
 
-    if (readSession.getInitialReadLocationsCount() == 0) {
+    if (readSession.getStreamsCount() == 0) {
       return ImmutableList.of();
     }
 
-    Long readSizeBytes = tableSizeBytes / readSession.getInitialReadLocationsCount();
-    List<BoundedSource<T>> sources = new ArrayList<>(readSession.getInitialReadLocationsCount());
-    for (ParallelRead.ReadLocation readLocation : readSession.getInitialReadLocationsList()) {
+    Long readSizeBytes = tableSizeBytes / readSession.getStreamsCount();
+    List<BoundedSource<T>> sources = new ArrayList<>(readSession.getStreamsCount());
+    for (Storage.Stream stream : readSession.getStreamsList()) {
       sources.add(new BigQueryParallelReadStreamSource<>(
           bqServices,
           parseFn,
           coder,
-          readSessionOptions,
           readSession,
-          readLocation,
+          Storage.StreamPosition.newBuilder()
+              .setStream(stream)
+              .build(),
           readSizeBytes));
     }
 

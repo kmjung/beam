@@ -19,12 +19,7 @@ package org.apache.beam.sdk.io.gcp.bigquery;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import com.google.cloud.bigquery.v3.ParallelRead;
-import com.google.cloud.bigquery.v3.ParallelRead.ReadLocation;
-import com.google.cloud.bigquery.v3.ParallelRead.ReadOptions;
-import com.google.cloud.bigquery.v3.ParallelRead.ReadRowsRequest;
-import com.google.cloud.bigquery.v3.ParallelRead.ReadRowsResponse;
-import com.google.cloud.bigquery.v3.ParallelRead.Session;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage;
 import com.google.cloud.bigquery.v3.RowOuterClass.Row;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
@@ -50,42 +45,37 @@ public class BigQueryParallelReadStreamSource<T> extends BoundedSource<T> {
       BigQueryServices bqServices,
       SerializableFunction<SchemaAndRowProto, T> parseFn,
       Coder<T> coder,
-      BigQueryIO.ReadSessionOptions readSessionOptions,
-      ParallelRead.Session readSession,
-      ParallelRead.ReadLocation readLocation,
+      Storage.ReadSession readSession,
+      Storage.StreamPosition streamPosition,
       Long readSizeBytes) {
     return new BigQueryParallelReadStreamSource<>(
         bqServices,
         parseFn,
         coder,
-        readSessionOptions,
         readSession,
-        readLocation,
+        streamPosition,
         readSizeBytes);
   }
 
   private final BigQueryServices bqServices;
   private final SerializableFunction<SchemaAndRowProto, T> parseFn;
   private final Coder<T> coder;
-  private final BigQueryIO.ReadSessionOptions readSessionOptions;
-  private final ParallelRead.Session readSession;
-  private final ParallelRead.ReadLocation readLocation;
+  private final Storage.ReadSession readSession;
+  private final Storage.StreamPosition streamPosition;
   private final Long readSizeBytes;
 
   BigQueryParallelReadStreamSource(
       BigQueryServices bqServices,
       SerializableFunction<SchemaAndRowProto, T> parseFn,
       Coder<T> coder,
-      BigQueryIO.ReadSessionOptions readSessionOptions,
-      ParallelRead.Session readSession,
-      ParallelRead.ReadLocation readLocation,
+      Storage.ReadSession readSession,
+      Storage.StreamPosition streamPosition,
       Long readSizeBytes) {
     this.bqServices = checkNotNull(bqServices, "bqServices");
     this.parseFn = checkNotNull(parseFn, "parseFn");
     this.coder = checkNotNull(coder, "coder");
-    this.readSessionOptions = readSessionOptions;
     this.readSession = checkNotNull(readSession, "readSession");
-    this.readLocation = checkNotNull(readLocation, "readLocation");
+    this.streamPosition = checkNotNull(streamPosition, "streamPosition");
     this.readSizeBytes = readSizeBytes;
   }
 
@@ -105,10 +95,7 @@ public class BigQueryParallelReadStreamSource<T> extends BoundedSource<T> {
   public BoundedReader<T> createReader(PipelineOptions pipelineOptions) {
     return new BigQueryParallelReadStreamReader<>(
         readSession,
-        readLocation,
-        (readSessionOptions != null && readSessionOptions.getRowBatchSize() != null)
-            ? readSessionOptions.getRowBatchSize()
-            : 1000,
+        streamPosition,
         parseFn,
         this,
         bqServices,
@@ -126,34 +113,31 @@ public class BigQueryParallelReadStreamSource<T> extends BoundedSource<T> {
   @Experimental(Experimental.Kind.SOURCE_SINK)
   static class BigQueryParallelReadStreamReader<T> extends BoundedReader<T> {
 
-    private Session session;
+    private Storage.ReadSession readSession;
     private final BigQueryServices client;
-    private Iterator<ReadRowsResponse> responseIterator;
+    private Iterator<Storage.ReadRowsResponse> responseIterator;
     private Iterator<Row> rowIterator;
-    private final ReadRowsRequest request;
+    private final Storage.ReadRowsRequest request;
     private SerializableFunction<SchemaAndRowProto, T> parseFn;
     private BoundedSource<T> source;
     private BigQueryOptions options;
     private Row currentRow;
 
     BigQueryParallelReadStreamReader(
-        Session session,
-        ReadLocation readLocation,
-        Integer rowBatchSize,
+        Storage.ReadSession readSession,
+        Storage.StreamPosition streamPosition,
         SerializableFunction<SchemaAndRowProto, T> parseFn,
         BoundedSource<T> source,
         BigQueryServices client,
         BigQueryOptions options) {
-      this.session = checkNotNull(session, "session");
+      this.readSession = checkNotNull(readSession, "readSession");
       this.client = checkNotNull(client, "client");
       this.parseFn = checkNotNull(parseFn, "parseFn");
       this.source = checkNotNull(source, "source");
       this.options = options;
 
-      this.request = ReadRowsRequest.newBuilder()
-          .setReadLocation(readLocation)
-          .setOptions(ReadOptions.newBuilder()
-              .setMaxRows(checkNotNull(rowBatchSize, "rowBatchSize")))
+      this.request = Storage.ReadRowsRequest.newBuilder()
+          .setReadPosition(streamPosition)
           .build();
     }
 
@@ -185,7 +169,7 @@ public class BigQueryParallelReadStreamSource<T> extends BoundedSource<T> {
       if (currentRow == null) {
         return null;
       }
-      return parseFn.apply(new SchemaAndRowProto(session.getProjectedSchema(), currentRow));
+      return parseFn.apply(new SchemaAndRowProto(readSession.getProjectedSchema(), currentRow));
     }
 
     @Override

@@ -21,11 +21,11 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 
-import com.google.cloud.bigquery.v3.ParallelRead.CreateSessionRequest;
-import com.google.cloud.bigquery.v3.ParallelRead.ReadRowsRequest;
-import com.google.cloud.bigquery.v3.ParallelRead.ReadRowsResponse;
-import com.google.cloud.bigquery.v3.ParallelRead.Session;
-import com.google.cloud.bigquery.v3.ReadOptions;
+import com.google.cloud.bigquery.storage.v1alpha1.ReadOptions;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.CreateReadSessionRequest;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsRequest;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsResponse;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadSession;
 import com.google.cloud.bigquery.v3.TableReferenceProto;
 import com.google.common.base.Strings;
 import java.io.Serializable;
@@ -39,14 +39,15 @@ import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.TableReadService;
  */
 public class FakeTableReadService implements TableReadService, Serializable {
 
-  private CreateSessionRequest createSessionRequest;
-  private Session session;
+  private CreateReadSessionRequest createReadSessionRequest;
+  private ReadSession readSession;
   private ReadRowsRequest readRowsRequest;
   private List<ReadRowsResponse> readRowsResponses;
 
-  void setCreateSessionResult(CreateSessionRequest createSessionRequest, Session session) {
-    this.createSessionRequest = createSessionRequest;
-    this.session = session;
+  void setCreateSessionResult(CreateReadSessionRequest createSessionRequest,
+      ReadSession readSession) {
+    this.createReadSessionRequest = createSessionRequest;
+    this.readSession = readSession;
   }
 
   void setReadRowsResponses(
@@ -56,10 +57,11 @@ public class FakeTableReadService implements TableReadService, Serializable {
   }
 
   @Override
-  public Session createSession(CreateSessionRequest request) {
+  public ReadSession createSession(CreateReadSessionRequest request) {
 
-    if (createSessionRequest.hasTableReference()) {
-      TableReferenceProto.TableReference tableReference = createSessionRequest.getTableReference();
+    if (createReadSessionRequest.hasTableReference()) {
+      TableReferenceProto.TableReference tableReference = createReadSessionRequest
+          .getTableReference();
       if (!Strings.isNullOrEmpty(tableReference.getProjectId())) {
         assertThat(request.getTableReference().getProjectId(), is(tableReference.getProjectId()));
       }
@@ -71,21 +73,22 @@ public class FakeTableReadService implements TableReadService, Serializable {
       }
     }
 
-    if (!Strings.isNullOrEmpty(createSessionRequest.getBillableProjectId())) {
-      assertThat(request.getBillableProjectId(), is(createSessionRequest.getBillableProjectId()));
+    if (!Strings.isNullOrEmpty(createReadSessionRequest.getBillableProjectId())) {
+      assertThat(request.getBillableProjectId(),
+          is(createReadSessionRequest.getBillableProjectId()));
     }
 
-    if (createSessionRequest.hasReadOptions()) {
-      ReadOptions.TableReadOptions readOptions = createSessionRequest.getReadOptions();
+    if (createReadSessionRequest.hasReadOptions()) {
+      ReadOptions.TableReadOptions readOptions = createReadSessionRequest.getReadOptions();
       if (readOptions.getSelectedFieldsCount() > 0) {
         assertThat(readOptions.getSelectedFieldsList(), is(readOptions.getSelectedFieldsList()));
       }
-      if (!Strings.isNullOrEmpty(readOptions.getSqlFilter())) {
-        assertThat(readOptions.getSqlFilter(), is(readOptions.getSqlFilter()));
+      if (!Strings.isNullOrEmpty(readOptions.getFilter())) {
+        assertThat(readOptions.getFilter(), is(readOptions.getFilter()));
       }
     }
 
-    return session;
+    return readSession;
   }
 
   @Override

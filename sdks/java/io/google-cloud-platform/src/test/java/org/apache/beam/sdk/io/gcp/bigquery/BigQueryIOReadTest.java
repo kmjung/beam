@@ -37,7 +37,7 @@ import com.google.api.services.bigquery.model.TableFieldSchema;
 import com.google.api.services.bigquery.model.TableReference;
 import com.google.api.services.bigquery.model.TableRow;
 import com.google.api.services.bigquery.model.TableSchema;
-import com.google.bigtable.v2.Mutation;
+import com.google.cloud.bigquery.v3.RowOuterClass.Row;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
@@ -787,16 +787,16 @@ public class BigQueryIOReadTest implements Serializable {
   @Test
   public void testCoderInference() {
     // Lambdas erase too much type information - use an anonymous class here.
-    SerializableFunction<SchemaAndRecord, KV<ByteString, Mutation>> parseFn =
-        new SerializableFunction<SchemaAndRecord, KV<ByteString, Mutation>>() {
+    SerializableFunction<SchemaAndRecord, KV<ByteString, Row>> parseFn =
+        new SerializableFunction<SchemaAndRecord, KV<ByteString, Row>>() {
           @Override
-          public KV<ByteString, Mutation> apply(SchemaAndRecord input) {
+          public KV<ByteString, Row> apply(SchemaAndRecord input) {
             return null;
           }
         };
 
     assertEquals(
-        KvCoder.of(ByteStringCoder.of(), ProtoCoder.of(Mutation.class)),
+        KvCoder.of(ByteStringCoder.of(), ProtoCoder.of(Row.class)),
         BigQueryIO.read(parseFn).inferCoder(CoderRegistry.createDefault()));
   }
 }

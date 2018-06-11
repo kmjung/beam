@@ -33,8 +33,7 @@ import com.google.api.services.bigquery.model.TableRow;
 import com.google.api.services.bigquery.model.TableSchema;
 import com.google.api.services.bigquery.model.TimePartitioning;
 import com.google.auto.value.AutoValue;
-import com.google.cloud.bigquery.v3.ParallelRead;
-import com.google.cloud.bigquery.v3.ParallelRead.ReadLocation;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Predicates;
@@ -289,7 +288,6 @@ public class BigQueryIO {
   public abstract static class ReadSessionOptions implements Serializable {
     @Nullable public abstract String getSqlFilter();
     @Nullable public abstract List<String> getSelectedFields();
-    @Nullable public abstract Integer getRowBatchSize();
 
     abstract ReadSessionOptions.Builder toBuilder();
     public static Builder builder() {
@@ -303,7 +301,6 @@ public class BigQueryIO {
     public abstract static class Builder {
       public abstract Builder setSqlFilter(String sqlFilter);
       public abstract Builder setSelectedFields(List<String> selectedFields);
-      public abstract Builder setRowBatchSize(Integer rowBatchSize);
       public abstract ReadSessionOptions build();
     }
   }
@@ -982,13 +979,13 @@ public class BigQueryIO {
 
       queryResultTableCollection.setCoder(StringUtf8Coder.of());
 
-      final TupleTag<ParallelRead.Session> readSessionTag = new TupleTag<>();
-      final TupleTag<ParallelRead.ReadLocation> readLocationTag = new TupleTag<>();
+      final TupleTag<Storage.ReadSession> readSessionTag = new TupleTag<>();
+      final TupleTag<Storage.StreamPosition> streamPositionTag = new TupleTag<>();
 
       PCollectionTuple tuple = queryResultTableCollection
           .apply("CreateReadSession",
               ParDo.of(
-                  new DoFn<String, ReadLocation>() {
+                  new DoFn<String, Storage.StreamPosition>() {
                     @ProcessElement
                     public void processElement(ProcessContext c) throws Exception {
                       PipelineOptions options = c.getPipelineOptions();
@@ -997,29 +994,31 @@ public class BigQueryIO {
                           BigQueryHelpers.fromJsonString(c.element(), TableReference.class);
                       TableReadService tableReadService =
                           getBigQueryServices().getTableReadService(bqOptions);
-                      ParallelRead.Session readSession = BigQueryHelpers.createReadSession(
+                      Storage.ReadSession readSession = BigQueryHelpers.createReadSession(
                           tableReadService, queryResultTable, 0, getReadSessionOptions());
                       c.output(readSessionTag, readSession);
-                      for (ParallelRead.ReadLocation readLocation :
-                          readSession.getInitialReadLocationsList()) {
-                        c.output(readLocation);
+                      for (Storage.Stream stream :
+                          readSession.getStreamsList()) {
+                        c.output(Storage.StreamPosition.newBuilder()
+                            .setStream(stream)
+                            .build());
                       }
                     }
                   })
-                  .withOutputTags(readLocationTag, TupleTagList.of(readSessionTag)));
+                  .withOutputTags(streamPositionTag, TupleTagList.of(readSessionTag)));
 
-      tuple.get(readSessionTag).setCoder(ProtoCoder.of(ParallelRead.Session.class));
-      tuple.get(readLocationTag).setCoder(ProtoCoder.of(ParallelRead.ReadLocation.class));
+      tuple.get(readSessionTag).setCoder(ProtoCoder.of(Storage.ReadSession.class));
+      tuple.get(streamPositionTag).setCoder(ProtoCoder.of(Storage.StreamPosition.class));
 
-      final PCollectionView<ParallelRead.Session> readSessionView =
+      final PCollectionView<Storage.ReadSession> readSessionView =
           tuple.get(readSessionTag).apply("ViewReadSession", View.asSingleton());
 
       PCollection<T> rows = tuple
-          .get(readLocationTag)
+          .get(streamPositionTag)
           .apply(Reshuffle.viaRandomKey())
           .apply("ReadFromTemporaryTable",
               ParDo.of(
-                  new DoFn<ParallelRead.ReadLocation, T>() {
+                  new DoFn<Storage.StreamPosition, T>() {
                     @ProcessElement
                     public void processElement(ProcessContext c) throws Exception {
                       BigQueryParallelReadStreamSource<T> source =
@@ -1027,7 +1026,6 @@ public class BigQueryIO {
                               getBigQueryServices(),
                               getRowProtoParseFn(),
                               coder,
-                              getReadSessionOptions(),
                               c.sideInput(readSessionView),
                               c.element(),
                               null);
