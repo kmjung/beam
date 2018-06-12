@@ -35,7 +35,7 @@ dependencies {
   shadow project(path: ":sdks:java:core", configuration: "shadow")
   shadow project(path: ":sdks:java:extensions:google-cloud-platform-core", configuration: "shadow")
   shadow project(path: ":sdks:java:extensions:protobuf", configuration: "shadow")
-  shadow group: 'com.google.api', name: 'google-cloud-dev_bq_parallel_read', version: '0.1.25'
+  shadow group: 'com.google.cloud.bigquery.storage.v1alpha1', name: 'bigquery_storage_client', version: '0.0.1'
   shadow library.java.jackson_databind
   shadow library.java.grpc_core
   shadow library.java.google_api_services_bigquery

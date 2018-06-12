@@ -23,7 +23,7 @@ import static com.google.common.base.Preconditions.checkState;
 
 import com.google.api.services.bigquery.model.Table;
 import com.google.api.services.bigquery.model.TableReference;
-import com.google.cloud.bigquery.v3.ParallelRead;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
@@ -41,11 +41,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * A {@link BoundedSource} for reading BigQuery tables using the BigQuery parallel read API.
+ * A {@link BoundedSource} for reading BigQuery tables using the BigQuery Storage API.
  */
-class BigQueryParallelReadTableSource<T> extends BoundedSource<T> {
+class BigQueryStorageTableSource<T> extends BoundedSource<T> {
 
-  private static final Logger LOG = LoggerFactory.getLogger(BigQueryParallelReadTableSource.class);
+  private static final Logger LOG = LoggerFactory.getLogger(BigQueryStorageTableSource.class);
 
   /**
    * The maximum number of readers which will be requested when creating a BigQuery read session as
@@ -62,16 +62,16 @@ class BigQueryParallelReadTableSource<T> extends BoundedSource<T> {
   private static final int MIN_SPLIT_COUNT = 10;
 
   /**
-   * This method creates a new {@link BigQueryParallelReadTableSource} with no initial read session
+   * This method creates a new {@link BigQueryStorageTableSource} with no initial read session
    * or read location.
    */
-  public static <T> BigQueryParallelReadTableSource<T> create(
+  public static <T> BigQueryStorageTableSource<T> create(
       ValueProvider<TableReference> tableRefProvider,
       SerializableFunction<SchemaAndRowProto, T> parseFn,
       Coder<T> coder,
       BigQueryServices bqServices,
       ReadSessionOptions readSessionOptions) {
-    return new BigQueryParallelReadTableSource<>(
+    return new BigQueryStorageTableSource<>(
         NestedValueProvider.of(
             checkNotNull(tableRefProvider, "tableRefProvider"),
             new TableRefToJson()),
@@ -89,7 +89,7 @@ class BigQueryParallelReadTableSource<T> extends BoundedSource<T> {
 
   private transient Long cachedReadSizeBytes;
 
-  private BigQueryParallelReadTableSource(
+  private BigQueryStorageTableSource(
       ValueProvider<String> jsonTableRefProvider,
       SerializableFunction<SchemaAndRowProto, T> parseFn,
       Coder<T> coder,
@@ -120,26 +120,27 @@ class BigQueryParallelReadTableSource<T> extends BoundedSource<T> {
       readerCount = MIN_SPLIT_COUNT;
     }
 
-    ParallelRead.Session readSession = BigQueryHelpers.createReadSession(
+    Storage.ReadSession readSession = BigQueryHelpers.createReadSession(
         bqServices.getTableReadService(bqOptions),
         tableReference,
         readerCount,
         readSessionOptions);
 
-    if (readSession.getInitialReadLocationsCount() == 0) {
+    if (readSession.getStreamsCount() == 0) {
       return ImmutableList.of();
     }
 
-    Long readSizeBytes = tableSizeBytes / readSession.getInitialReadLocationsCount();
-    List<BoundedSource<T>> sources = new ArrayList<>(readSession.getInitialReadLocationsCount());
-    for (ParallelRead.ReadLocation readLocation : readSession.getInitialReadLocationsList()) {
-      sources.add(new BigQueryParallelReadStreamSource<>(
+    Long readSizeBytes = tableSizeBytes / readSession.getStreamsCount();
+    List<BoundedSource<T>> sources = new ArrayList<>(readSession.getStreamsCount());
+    for (Storage.Stream stream : readSession.getStreamsList()) {
+      sources.add(new BigQueryStorageStreamSource<>(
           bqServices,
           parseFn,
           coder,
-          readSessionOptions,
           readSession,
-          readLocation,
+          Storage.StreamPosition.newBuilder()
+              .setStream(stream)
+              .build(),
           readSizeBytes));
     }
 

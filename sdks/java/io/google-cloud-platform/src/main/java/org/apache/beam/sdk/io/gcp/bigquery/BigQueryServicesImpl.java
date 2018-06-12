@@ -47,9 +47,9 @@ import com.google.api.services.bigquery.model.TableReference;
 import com.google.api.services.bigquery.model.TableRow;
 import com.google.auth.Credentials;
 import com.google.auth.http.HttpCredentialsAdapter;
-import com.google.cloud.bigquery.v3.ParallelRead;
-import com.google.cloud.bigquery.v3.ParallelReadServiceClient;
-import com.google.cloud.bigquery.v3.ParallelReadServiceSettings;
+import com.google.cloud.bigquery.storage.v1alpha1.BigQueryStorageClient;
+import com.google.cloud.bigquery.storage.v1alpha1.BigQueryStorageSettings;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage;
 import com.google.cloud.hadoop.util.ApiErrorExtractor;
 import com.google.cloud.hadoop.util.ChainingHttpRequestInitializer;
 import com.google.common.annotations.VisibleForTesting;
@@ -847,22 +847,22 @@ class BigQueryServicesImpl implements BigQueryServices {
 
   static class TableReadServiceImpl implements TableReadService {
 
-    private ParallelReadServiceClient client;
+    private BigQueryStorageClient client;
 
     private TableReadServiceImpl(BigQueryOptions options) throws IOException {
-      ParallelReadServiceSettings settings = ParallelReadServiceSettings.newBuilder()
+      BigQueryStorageSettings settings = BigQueryStorageSettings.newBuilder()
           .setCredentialsProvider(FixedCredentialsProvider.create(options.getGcpCredential()))
           .build();
-      this.client = ParallelReadServiceClient.create(settings);
+      this.client = BigQueryStorageClient.create(settings);
     }
 
     @Override
-    public ParallelRead.Session createSession(ParallelRead.CreateSessionRequest request) {
-      return client.createSession(request);
+    public Storage.ReadSession createSession(Storage.CreateReadSessionRequest request) {
+      return client.createReadSession(request);
     }
 
     @Override
-    public Iterator<ParallelRead.ReadRowsResponse> readRows(ParallelRead.ReadRowsRequest request) {
+    public Iterator<Storage.ReadRowsResponse> readRows(Storage.ReadRowsRequest request) {
       return client.readRowsCallable().blockingServerStreamingCall(request);
     }
   }

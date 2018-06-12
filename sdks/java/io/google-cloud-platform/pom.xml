@@ -378,13 +378,19 @@
     <dependency>
         <groupId>com.google.api</groupId>
         <artifactId>gax</artifactId>
-        <version>1.15.0</version>
+        <version>1.23.0</version>
     </dependency>
 
     <dependency>
-      <groupId>com.google.api</groupId>
-      <artifactId>google-cloud-dev_bq_parallel_read</artifactId>
-      <version>0.1.25</version>
+      <groupId>com.google.cloud.bigquery.storage.v1alpha1</groupId>
+      <artifactId>bigquery_storage_client_proto</artifactId>
+      <version>0.0.1</version>
+    </dependency>
+
+    <dependency>
+      <groupId>com.google.cloud.bigquery.storage.v1alpha1</groupId>
+      <artifactId>bigquery_storage_client</artifactId>
+      <version>0.0.1</version>
     </dependency>
 
     <!--  Test dependencies -->
@@ -438,7 +444,7 @@
       <dependency>
         <groupId>com.google.api</groupId>
         <artifactId>gax</artifactId>
-        <version>1.15.0</version>
+        <version>1.23.0</version>
       </dependency>
     </dependencies>
   </dependencyManagement>

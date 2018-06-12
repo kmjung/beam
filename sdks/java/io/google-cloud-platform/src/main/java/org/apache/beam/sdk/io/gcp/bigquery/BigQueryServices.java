@@ -28,7 +28,7 @@ import com.google.api.services.bigquery.model.JobStatistics;
 import com.google.api.services.bigquery.model.Table;
 import com.google.api.services.bigquery.model.TableReference;
 import com.google.api.services.bigquery.model.TableRow;
-import com.google.cloud.bigquery.v3.ParallelRead;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage;
 import java.io.IOException;
 import java.io.Serializable;
 import java.util.Iterator;
@@ -182,11 +182,11 @@ interface BigQueryServices extends Serializable {
     /**
      * Creates a new read session against an existing table.
      */
-    ParallelRead.Session createSession(ParallelRead.CreateSessionRequest request);
+    Storage.ReadSession createSession(Storage.CreateReadSessionRequest request);
 
     /**
      * Initiates a read stream from an existing session and read location.
      */
-    Iterator<ParallelRead.ReadRowsResponse> readRows(ParallelRead.ReadRowsRequest request);
+    Iterator<Storage.ReadRowsResponse> readRows(Storage.ReadRowsRequest request);
   }
 }

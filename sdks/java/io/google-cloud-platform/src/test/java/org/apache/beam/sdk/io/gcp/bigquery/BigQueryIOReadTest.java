@@ -37,7 +37,7 @@ import com.google.api.services.bigquery.model.TableFieldSchema;
 import com.google.api.services.bigquery.model.TableReference;
 import com.google.api.services.bigquery.model.TableRow;
 import com.google.api.services.bigquery.model.TableSchema;
-import com.google.bigtable.v2.Mutation;
+import com.google.cloud.bigquery.v3.RowOuterClass.Row;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
@@ -83,9 +83,12 @@ import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 import org.junit.runners.model.Statement;
 
-/** Tests for {@link BigQueryIO#read}. */
+/**
+ * Tests for {@link BigQueryIO#read}.
+ */
 @RunWith(JUnit4.class)
 public class BigQueryIOReadTest implements Serializable {
+
   private transient PipelineOptions options;
   private transient TemporaryFolder testFolder = new TemporaryFolder();
   private transient TestPipeline p;
@@ -116,7 +119,8 @@ public class BigQueryIOReadTest implements Serializable {
         }
       };
 
-  @Rule public transient ExpectedException thrown = ExpectedException.none();
+  @Rule
+  public transient ExpectedException thrown = ExpectedException.none();
 
   private FakeDatasetService fakeDatasetService = new FakeDatasetService();
   private FakeJobService fakeJobService = new FakeJobService();
@@ -295,7 +299,7 @@ public class BigQueryIOReadTest implements Serializable {
     thrown.expect(IllegalArgumentException.class);
     thrown.expectMessage(
         "Invalid BigQueryIO.Read: Specifies read session options, which only apply when using"
-            + " TypedRead.Method.BQ_PARALLEL_READ");
+            + " TypedRead.Method.READ");
     p.apply(BigQueryIO.read(SerializableFunctions.identity())
         .from("foo.com:project:somedataset.sometable")
         .withReadSessionOptions(ReadSessionOptions.builder().build()));
@@ -787,16 +791,16 @@ public class BigQueryIOReadTest implements Serializable {
   @Test
   public void testCoderInference() {
     // Lambdas erase too much type information - use an anonymous class here.
-    SerializableFunction<SchemaAndRecord, KV<ByteString, Mutation>> parseFn =
-        new SerializableFunction<SchemaAndRecord, KV<ByteString, Mutation>>() {
+    SerializableFunction<SchemaAndRecord, KV<ByteString, Row>> parseFn =
+        new SerializableFunction<SchemaAndRecord, KV<ByteString, Row>>() {
           @Override
-          public KV<ByteString, Mutation> apply(SchemaAndRecord input) {
+          public KV<ByteString, Row> apply(SchemaAndRecord input) {
             return null;
           }
         };
 
     assertEquals(
-        KvCoder.of(ByteStringCoder.of(), ProtoCoder.of(Mutation.class)),
+        KvCoder.of(ByteStringCoder.of(), ProtoCoder.of(Row.class)),
         BigQueryIO.read(parseFn).inferCoder(CoderRegistry.createDefault()));
   }
 }
