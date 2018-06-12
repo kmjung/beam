@@ -390,7 +390,7 @@ public class BigQueryIO {
         .setWithTemplateCompatibility(false)
         .setBigQueryServices(new BigQueryServicesImpl())
         .setParseFn(parseFn)
-        .setMethod(TypedRead.Method.GCS_EXPORT)
+        .setMethod(TypedRead.Method.EXPORT)
         .build();
   }
 
@@ -420,7 +420,7 @@ public class BigQueryIO {
         .setWithTemplateCompatibility(false)
         .setBigQueryServices(new BigQueryServicesImpl())
         .setRowProtoParseFn(parseFn)
-        .setMethod(TypedRead.Method.BQ_STORAGE_READ)
+        .setMethod(TypedRead.Method.READ)
         .build();
   }
 
@@ -639,7 +639,7 @@ public class BigQueryIO {
     public enum Method {
 
       /**
-       * The default behavior if no method is explicitly set. Currently {@link #GCS_EXPORT}.
+       * The default behavior if no method is explicitly set. Currently {@link #EXPORT}.
        */
       DEFAULT,
 
@@ -648,13 +648,13 @@ public class BigQueryIO {
        * option can be used to read from existing BigQuery tables and to read the results of
        * queries.
        */
-      GCS_EXPORT,
+      EXPORT,
 
       /**
        * Read the contents of a table directly from BigQuery storage using the BigQuery parallel
        * read API. This option can be used only to read the contents of an existing table.
        */
-      BQ_STORAGE_READ,
+      READ,
     }
 
     @VisibleForTesting
@@ -664,7 +664,7 @@ public class BigQueryIO {
       }
 
       try {
-        if (getMethod() == Method.BQ_STORAGE_READ) {
+        if (getMethod() == Method.READ) {
           return coderRegistry.getCoder(TypeDescriptors.outputOf(getRowProtoParseFn()));
         } else {
           return coderRegistry.getCoder(TypeDescriptors.outputOf(getParseFn()));
@@ -708,7 +708,7 @@ public class BigQueryIO {
       // Even if existence validation is disabled, we need to make sure that the BigQueryIO
       // read is properly specified.
       BigQueryOptions bqOptions = options.as(BigQueryOptions.class);
-      if (getMethod() != Method.BQ_STORAGE_READ) {
+      if (getMethod() != Method.READ) {
         String tempLocation = bqOptions.getTempLocation();
         checkArgument(
             !Strings.isNullOrEmpty(tempLocation),
@@ -786,24 +786,24 @@ public class BigQueryIO {
         checkArgument(getUseLegacySql() != null, "useLegacySql should not be null if query is set");
       }
 
-      if (getMethod() == Method.BQ_STORAGE_READ) {
+      if (getMethod() == Method.READ) {
         return expandForStorageApiRead(input);
       }
 
       checkArgument(
           getParseFn() != null,
           "Invalid BigQueryIO.Read: An Avro parseFn is required when using"
-              + " TypedRead.Method.GCS_EXPORT");
+              + " TypedRead.Method.EXPORT");
 
       checkArgument(
           getRowProtoParseFn() == null,
           "Invalid BigQueryIO.Read: Specifies a row proto parseFn, which only applies when using"
-              + " TypedRead.Method.BQ_STORAGE_READ");
+              + " TypedRead.Method.READ");
 
       checkArgument(
           getReadSessionOptions() == null,
           "Invalid BigQueryIO.Read: Specifies read session options, which only apply when using"
-              + " TypedRead.Method.BQ_STORAGE_READ");
+              + " TypedRead.Method.READ");
 
       Pipeline p = input.getPipeline();
       final Coder<T> coder = inferCoder(p.getCoderRegistry());
@@ -925,17 +925,17 @@ public class BigQueryIO {
       checkArgument(
           getRowProtoParseFn() != null,
           "Invalid BigQueryIO.Read: A row proto parseFn is required when using"
-              + " TypedRead.Method.BQ_STORAGE_READ");
+              + " TypedRead.Method.READ");
 
       checkArgument(
           getParseFn() == null,
           "Invalid BigQueryIO.Read: Specifies an Avro parseFn, which only applies when using"
-              + " TypedRead.Method.GCS_EXPORT");
+              + " TypedRead.Method.EXPORT");
 
       Pipeline p = input.getPipeline();
       final Coder<T> coder = inferCoder(p.getCoderRegistry());
 
-      // When using Method.BQ_STORAGE_READ to read directly from a table, there are no temporary
+      // When using Method.READ to read directly from a table, there are no temporary
       // resources to clean up. Apply a Read transform to the pipeline and return.
       if (getTableProvider() != null) {
         return p.apply(
@@ -948,7 +948,7 @@ public class BigQueryIO {
                     getReadSessionOptions())));
       }
 
-      // When using Method.BQ_STORAGE_READ to read the results of a query, the underlying
+      // When using Method.READ to read the results of a query, the underlying
       // dataset and table must remain live while the data is being read and then be cleaned up
       // afterwards.
       PCollection<String> queryResultTableCollection =
@@ -1107,7 +1107,7 @@ public class BigQueryIO {
 
     /**
      * Sets the {@link ReadSessionOptions} for the read session. This can be specified only when
-     * using {@link Method#BQ_STORAGE_READ} as the underlying method.
+     * using {@link Method#READ} as the underlying method.
      */
     @Experimental
     public TypedRead<T> withReadSessionOptions(ReadSessionOptions options) {

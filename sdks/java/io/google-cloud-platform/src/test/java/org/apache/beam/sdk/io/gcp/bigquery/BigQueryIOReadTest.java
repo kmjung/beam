@@ -299,7 +299,7 @@ public class BigQueryIOReadTest implements Serializable {
     thrown.expect(IllegalArgumentException.class);
     thrown.expectMessage(
         "Invalid BigQueryIO.Read: Specifies read session options, which only apply when using"
-            + " TypedRead.Method.BQ_STORAGE_READ");
+            + " TypedRead.Method.READ");
     p.apply(BigQueryIO.read(SerializableFunctions.identity())
         .from("foo.com:project:somedataset.sometable")
         .withReadSessionOptions(ReadSessionOptions.builder().build()));

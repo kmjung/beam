@@ -221,7 +221,7 @@ public class BigQueryIOStorageApiReadTest {
     assertEquals(tableId, typedRead.getTable().getTableId());
     assertNull(typedRead.getQuery());
     assertEquals(validate, typedRead.getValidate());
-    assertEquals(Method.BQ_STORAGE_READ, typedRead.getMethod());
+    assertEquals(Method.READ, typedRead.getMethod());
   }
 
   private void checkTypedReadQueryObject(
@@ -235,7 +235,7 @@ public class BigQueryIOStorageApiReadTest {
   public void testBuildTableSourceWithNullParseFn() {
     thrown.expect(IllegalArgumentException.class);
     thrown.expectMessage(
-        "A row proto parseFn is required when using TypedRead.Method.BQ_STORAGE_READ");
+        "A row proto parseFn is required when using TypedRead.Method.READ");
     pipeline.apply(BigQueryIO.readViaRowProto(null)
         .from(DEFAULT_TABLE_REFERENCE_STRING));
     pipeline.run();
@@ -245,7 +245,7 @@ public class BigQueryIOStorageApiReadTest {
   public void testBuildQuerySourceWithNullParseFn() {
     thrown.expect(IllegalArgumentException.class);
     thrown.expectMessage(
-        "A row proto parseFn is required when using TypedRead.Method.BQ_STORAGE_READ");
+        "A row proto parseFn is required when using TypedRead.Method.READ");
     pipeline.apply(BigQueryIO.readViaRowProto(null)
         .fromQuery("SELECT * FROM my_table"));
     pipeline.run();
