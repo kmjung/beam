@@ -172,6 +172,14 @@
     </profile>
   </profiles>
 
+  <repositories>
+    <repository>
+      <id>bigquery-storage</id>
+      <name>BigQuery Storage Maven Repository</name>
+      <url>https://storage.googleapis.com/bigquery-storage-maven-repository</url>
+    </repository>
+  </repositories>
+
   <dependencies>
     <dependency>
       <groupId>org.apache.beam</groupId>
@@ -384,13 +392,13 @@
     <dependency>
       <groupId>com.google.cloud.bigquery.storage.v1alpha1</groupId>
       <artifactId>bigquery_storage_client_proto</artifactId>
-      <version>0.0.1</version>
+      <version>0.0.3</version>
     </dependency>
 
     <dependency>
       <groupId>com.google.cloud.bigquery.storage.v1alpha1</groupId>
       <artifactId>bigquery_storage_client</artifactId>
-      <version>0.0.1</version>
+      <version>0.0.3</version>
     </dependency>
 
     <!--  Test dependencies -->
