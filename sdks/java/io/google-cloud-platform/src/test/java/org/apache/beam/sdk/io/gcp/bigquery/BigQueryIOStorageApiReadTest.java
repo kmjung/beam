@@ -435,8 +435,6 @@ public class BigQueryIOStorageApiReadTest {
 
     List<? extends BoundedSource<Row>> sources = source.split(desiredBundleSizeBytes, options);
     assertEquals(50, sources.size());
-    long expectedSizeBytes = TABLE_SIZE_BYTES / 50;
-    assertEquals(expectedSizeBytes, sources.get(0).getEstimatedSizeBytes(options));
   }
 
   @Test
@@ -471,7 +469,6 @@ public class BigQueryIOStorageApiReadTest {
         .as(BigQueryOptions.class);
     List<? extends BoundedSource<Row>> sources = source.split(1024, options);
     assertEquals(1, sources.size());
-    assertEquals(TABLE_SIZE_BYTES, sources.get(0).getEstimatedSizeBytes(options));
   }
 
   @Test
