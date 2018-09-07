@@ -21,8 +21,10 @@ import static org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.createJobIdTok
 import static org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.createTempTableReference;
 import static org.apache.beam.sdk.transforms.display.DisplayDataMatchers.hasDisplayItem;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 
 import com.google.api.services.bigquery.model.JobStatistics;
 import com.google.api.services.bigquery.model.JobStatistics2;
@@ -39,6 +41,7 @@ import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsResponse;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadSession;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.Stream;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.StreamPosition;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.StreamStats;
 import com.google.cloud.bigquery.v3.RowOuterClass.Row;
 import com.google.cloud.bigquery.v3.RowOuterClass.StructField;
 import com.google.cloud.bigquery.v3.RowOuterClass.StructType;
@@ -52,12 +55,14 @@ import com.google.common.collect.Lists;
 import java.math.BigInteger;
 import java.util.List;
 import org.apache.beam.sdk.Pipeline;
+import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.CoderRegistry;
 import org.apache.beam.sdk.coders.KvCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.coders.VarLongCoder;
 import org.apache.beam.sdk.extensions.protobuf.ProtoCoder;
 import org.apache.beam.sdk.io.BoundedSource;
+import org.apache.beam.sdk.io.BoundedSource.BoundedReader;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.ReadSessionOptions;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.TypedRead.Method;
 import org.apache.beam.sdk.options.PipelineOptions;
@@ -834,5 +839,89 @@ public class BigQueryIOStorageApiReadTest {
         ImmutableList.of(KV.of("a", 1L), KV.of("b", 2L), KV.of("c", 3L)));
 
     pipeline.run();
+  }
+
+  @Test
+  public void testProgressEstimation() throws Exception {
+
+    BigQueryOptions bqOptions =
+        PipelineOptionsFactory.fromArgs("--project=" + DEFAULT_PROJECT_ID)
+            .as(BigQueryOptions.class);
+
+    Stream stream = Stream.newBuilder().setName("stream name").build();
+
+    ReadSession readSession = ReadSession.newBuilder()
+        .setName("session name").setProjectedSchema(defaultStructType).addStreams(stream).build();
+
+    ReadRowsRequest readRowsRequest = ReadRowsRequest.newBuilder()
+        .setReadPosition(StreamPosition.newBuilder().setStream(stream).setOffset(4))
+        .build();
+
+    List<ReadRowsResponse> readRowsResponses = Lists.newArrayList(
+        ReadRowsResponse.newBuilder()
+            .addRows(createRowBuilder("e", 5))
+            .addRows(createRowBuilder("f", 6))
+            .build(),
+        ReadRowsResponse.newBuilder()
+            .addRows(createRowBuilder("g", 7))
+            .setStatus(StreamStats.newBuilder().setTotalEstimatedRows(9L))
+            .build(),
+        ReadRowsResponse.newBuilder()
+            .addRows(createRowBuilder("h", 8))
+            .addRows(createRowBuilder("i", 9))
+            .addRows(createRowBuilder("j", 10))
+            .setStatus(StreamStats.newBuilder().setTotalEstimatedRows(10L))
+            .build());
+
+    fakeTableReadService.setReadRowsResponses(readRowsRequest, readRowsResponses);
+
+    SerializableFunction<SchemaAndRowProto, KV<String, Long>> parseFn =
+        (input) -> KV.of((String) input.get("name"), (Long) input.get("number"));
+
+    Coder<KV<String, Long>> coder = KvCoder.of(StringUtf8Coder.of(), VarLongCoder.of());
+
+    BigQueryStorageStreamSource<KV<String, Long>> source =
+        new BigQueryStorageStreamSource<>(
+            readSession, stream, 4, Long.MAX_VALUE, parseFn, coder, fakeBigQueryServices);
+    assertEquals(4, source.getStartOffset());
+
+    BoundedReader<KV<String, Long>> reader = source.createReader(bqOptions);
+    assertEquals(0.0, reader.getFractionConsumed(), 0.01);
+
+    assertTrue(reader.start());
+    assertEquals(KV.of("e", 5L), reader.getCurrent());
+    assertNull(reader.getFractionConsumed());
+
+    assertTrue(reader.advance());
+    assertEquals(KV.of("f", 6L), reader.getCurrent());
+    assertNull(reader.getFractionConsumed());
+
+    assertTrue(reader.advance());
+    assertEquals(KV.of("g", 7L), reader.getCurrent());
+    // Stream is estimated to have [9 - 4] -> 5 rows, and we've consumed 3 of them.
+    assertEquals(0.60, reader.getFractionConsumed(), 0.01);
+
+    assertTrue(reader.advance());
+    assertEquals(KV.of("h", 8L), reader.getCurrent());
+    // Stream is estimated to have [10 - 4] -> 6 rows, and we've consumed 4 of them.
+    assertEquals(0.66, reader.getFractionConsumed(), 0.01);
+
+    assertTrue(reader.advance());
+    assertEquals(KV.of("i", 9L), reader.getCurrent());
+    assertEquals(0.83, reader.getFractionConsumed(), 0.01);
+
+    assertTrue(reader.advance());
+    assertEquals(KV.of("j", 10L), reader.getCurrent());
+    assertEquals(1.0, reader.getFractionConsumed(), 0.01);
+
+    assertFalse(reader.advance());
+    assertEquals(1.0, reader.getFractionConsumed(), 0.01);
+  }
+
+  private Row.Builder createRowBuilder(String stringValue, long int64Value) {
+    return Row.newBuilder().setValue(
+        StructValue.newBuilder()
+            .addFields(Value.newBuilder().setStringValue(stringValue))
+            .addFields(Value.newBuilder().setInt64Value(int64Value)));
   }
 }

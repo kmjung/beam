@@ -27,6 +27,7 @@ import com.google.cloud.bigquery.storage.v1alpha1.Storage.Stream;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.StreamPosition;
 import com.google.cloud.bigquery.v3.RowOuterClass.Row;
 import com.google.cloud.bigquery.v3.RowOuterClass.StructType;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.util.Iterator;
@@ -68,7 +69,8 @@ public class BigQueryStorageStreamSource<T> extends OffsetBasedSource<T> {
   private final Coder<T> outputCoder;
   private final BigQueryServices bqServices;
 
-  private BigQueryStorageStreamSource(
+  @VisibleForTesting
+  BigQueryStorageStreamSource(
       ReadSession readSession,
       Stream stream,
       long startOffset,
@@ -403,6 +405,9 @@ public class BigQueryStorageStreamSource<T> extends OffsetBasedSource<T> {
     @GuardedBy("progressLock")
     private long currentBlockSizeBytes = 0;
 
+    // Estimated length of the current stream, as provided by the server.
+    private long estimatedStreamLength = Long.MAX_VALUE;
+
     public BigQueryStorageStreamReader(
         BigQueryStorageStreamSource<T> source, PipelineOptions options) {
       super(source);
@@ -429,6 +434,11 @@ public class BigQueryStorageStreamSource<T> extends OffsetBasedSource<T> {
           .build();
 
       responseIterator = bqServices.getTableReadService(bqOptions).readRows(request);
+
+      synchronized (progressLock) {
+        currentBlockOffset = source.getStartOffset();
+      }
+
       // TODO: Convert TableReadService to return a GAX ServerStream object.
       return null;
     }
@@ -446,7 +456,9 @@ public class BigQueryStorageStreamSource<T> extends OffsetBasedSource<T> {
 
       ReadRowsResponse nextResponse = responseIterator.next();
       currentBlock = new RowProtoBlock<>(schema, parseFn, nextResponse.getRowsList());
-      // TODO: Update the estimated row count for the stream.
+      if (nextResponse.hasStatus()) {
+        estimatedStreamLength = nextResponse.getStatus().getTotalEstimatedRows();
+      }
 
       synchronized (progressLock) {
         currentBlockOffset = startOfNextBlock;
@@ -473,6 +485,48 @@ public class BigQueryStorageStreamSource<T> extends OffsetBasedSource<T> {
       synchronized (progressLock) {
         return currentBlockSizeBytes;
       }
+    }
+
+    @Override
+    @Nullable
+    public Double getFractionConsumed() {
+      if (!isStarted()) {
+        return 0.0;
+      }
+
+      if (isDone()) {
+        return 1.0;
+      }
+
+      BigQueryStorageStreamSource<T> source = getCurrentSource();
+      long endOffset = source.getEndOffset();
+      if (endOffset != Long.MAX_VALUE) {
+        // The actual end offset of the stream is known; compute the fraction consumed using the
+        // actual offset.
+        return computeFractionConsumed(source.getStartOffset(), endOffset);
+      }
+
+      endOffset = estimatedStreamLength;
+      if (endOffset != Long.MAX_VALUE) {
+        // The actual end offset of the stream is not known, but the server has provided us with a
+        // rough estimate. Compute the fraction consumed using the estimated length.
+        return computeFractionConsumed(source.getStartOffset(), endOffset);
+      }
+
+      return null;
+    }
+
+    private double computeFractionConsumed(long startOffset, long endOffset) {
+      long currentBlockOffset = getCurrentBlockOffset();
+      double fractionAtBlockStart =
+          ((double) (currentBlockOffset - startOffset)) / (endOffset - startOffset);
+      double fractionAtBlockEnd =
+          ((double) (currentBlockOffset + getCurrentBlockSize() - startOffset)
+              / (endOffset - startOffset));
+      double blockFraction = getCurrentBlock().getFractionOfBlockConsumed();
+      return Math.min(
+          1.0,
+          fractionAtBlockStart + blockFraction * (fractionAtBlockEnd - fractionAtBlockStart));
     }
   }
 }
