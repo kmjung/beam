@@ -445,6 +445,29 @@
       <artifactId>slf4j-jdk14</artifactId>
       <scope>test</scope>
     </dependency>
+
+    <dependency>
+      <groupId>com.google.cloud.bigquery.storage.v1alpha1</groupId>
+      <artifactId>bigquery_storage_client_grpc</artifactId>
+      <version>0.0.3</version>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>com.google.api</groupId>
+      <artifactId>gax</artifactId>
+      <version>1.23.0</version>
+      <classifier>testlib</classifier>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>com.google.api</groupId>
+      <artifactId>gax-grpc</artifactId>
+      <version>1.23.0</version>
+      <classifier>testlib</classifier>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <dependencyManagement>
@@ -453,6 +476,30 @@
         <groupId>com.google.api</groupId>
         <artifactId>gax</artifactId>
         <version>1.23.0</version>
+      </dependency>
+
+      <dependency>
+        <groupId>com.google.api</groupId>
+        <artifactId>gax-grpc</artifactId>
+        <version>1.23.0</version>
+      </dependency>
+
+      <dependency>
+        <groupId>io.netty</groupId>
+        <artifactId>netty-grpc</artifactId>
+        <version>1.10.1</version>
+      </dependency>
+
+      <dependency>
+        <groupId>io.grpc</groupId>
+        <artifactId>grpc-core</artifactId>
+        <version>1.10.1</version>
+      </dependency>
+
+      <dependency>
+        <groupId>io.grpc</groupId>
+        <artifactId>grpc-protobuf</artifactId>
+        <version>1.10.1</version>
       </dependency>
     </dependencies>
   </dependencyManagement>

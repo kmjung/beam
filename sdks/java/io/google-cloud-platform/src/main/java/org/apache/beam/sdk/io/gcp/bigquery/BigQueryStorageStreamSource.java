@@ -433,14 +433,15 @@ public class BigQueryStorageStreamSource<T> extends OffsetBasedSource<T> {
               .setOffset(source.getStartOffset()))
           .build();
 
-      responseIterator = bqServices.getTableReadService(bqOptions).readRows(request);
+      ServerStream<ReadRowsResponse> stream =
+          bqServices.newStorageClient(bqOptions).readRowsCallable().call(request);
+      responseIterator = stream.iterator();
 
       synchronized (progressLock) {
         currentBlockOffset = source.getStartOffset();
       }
 
-      // TODO: Convert TableReadService to return a GAX ServerStream object.
-      return null;
+      return stream;
     }
 
     @Override
