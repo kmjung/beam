@@ -86,9 +86,17 @@ public class StreamOffsetRangeTracker implements RangeTracker<StreamPosition> {
     return StreamPosition.newBuilder().setStream(stream).setOffset(startOffset).build();
   }
 
+  public synchronized long getStartOffset() {
+    return startOffset;
+  }
+
   @Override
   public synchronized StreamPosition getStopPosition() {
     return StreamPosition.newBuilder().setStream(stream).setOffset(stopOffset).build();
+  }
+
+  public synchronized long getStopOffset() {
+    return stopOffset;
   }
 
   @Override
@@ -241,7 +249,11 @@ public class StreamOffsetRangeTracker implements RangeTracker<StreamPosition> {
     this.splitPending = false;
   }
 
-  public synchronized long getPositionForFractionConsumed(double fraction) {
+  public synchronized StreamPosition getPositionForLastRecordStart() {
+    return StreamPosition.newBuilder().setStream(stream).setOffset(lastRecordStart).build();
+  }
+
+  public synchronized StreamPosition getPositionForFractionConsumed(double fraction) {
     // It's OK to throw in this case since there's never a transition from a bounded range to an
     // unbounded range (callers will never read the stop offset of the range as something other than
     // OFFSET_INFINITY and then
@@ -250,7 +262,8 @@ public class StreamOffsetRangeTracker implements RangeTracker<StreamPosition> {
           "getPositionForFractionConsumed is not applicable to an unbounded range: %s", this));
     }
 
-    return (long) Math.floor(startOffset + fraction * (stopOffset - startOffset));
+    long splitOffset = (long) Math.floor(startOffset + fraction * (stopOffset - startOffset));
+    return StreamPosition.newBuilder().setStream(stream).setOffset(splitOffset).build();
   }
 
   public synchronized double getFractionConsumed() {
@@ -264,6 +277,21 @@ public class StreamOffsetRangeTracker implements RangeTracker<StreamPosition> {
       return 1.0;
     } else {
       return Math.min(1.0, 1.0 * (lastRecordStart - startOffset) / (stopOffset - startOffset));
+    }
+  }
+
+  public synchronized Double getOrEstimateFractionConsumed(long estimatedStopOffset) {
+    if (!isStarted()) {
+      return 0.0;
+    } else if (isDone()) {
+      return 1.0;
+    } else if (stopOffset != OFFSET_INFINITY) {
+      return Math.min(1.0, 1.0 * (lastRecordStart - startOffset) / (stopOffset - startOffset));
+    } else if (estimatedStopOffset != OFFSET_INFINITY) {
+      return Math.min(1.0,
+          1.0 * (lastRecordStart - startOffset) / (estimatedStopOffset - startOffset));
+    } else {
+      return null;
     }
   }
 

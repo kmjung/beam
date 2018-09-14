@@ -65,6 +65,7 @@ import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.io.BoundedSource.BoundedReader;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.ReadSessionOptions;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.TypedRead.Method;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryStorageStreamSource.SplitDisposition;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.ValueProvider;
@@ -814,12 +815,6 @@ public class BigQueryIOStorageApiReadTest {
                 .setTotalBytesProcessed(TABLE_SIZE_BYTES)
                 .setReferencedTables(ImmutableList.of(tempTableReference))));
 
-    CreateReadSessionRequest expectedCreateReadSessionRequest =
-        CreateReadSessionRequest.newBuilder(createReadSessionRequest)
-            .setTableReference(TableReferenceProto.TableReference.newBuilder()
-                .setProjectId(tempTableReference.getProjectId()))
-            .build();
-
     ReadSession readSession = ReadSession.newBuilder()
         .setName("session name")
         .setProjectedSchema(defaultStructType)
@@ -901,8 +896,8 @@ public class BigQueryIOStorageApiReadTest {
     Coder<KV<String, Long>> coder = KvCoder.of(StringUtf8Coder.of(), VarLongCoder.of());
 
     BigQueryStorageStreamSource<KV<String, Long>> source =
-        new BigQueryStorageStreamSource<>(
-            readSession, stream, 4, Long.MAX_VALUE, parseFn, coder, fakeBigQueryServices);
+        new BigQueryStorageStreamSource<>(readSession, stream, SplitDisposition.SELF, null,
+            4, Long.MAX_VALUE, parseFn, coder, fakeBigQueryServices);
     assertEquals(4, source.getStartOffset());
 
     BoundedReader<KV<String, Long>> reader = source.createReader(bqOptions);
@@ -918,26 +913,24 @@ public class BigQueryIOStorageApiReadTest {
 
     assertTrue(reader.advance());
     assertEquals(KV.of("g", 7L), reader.getCurrent());
-    // Stream is estimated to have [9 - 4] -> 5 rows, and we've consumed 3 of them.
-    assertEquals(0.60, reader.getFractionConsumed(), 0.01);
+    // Stream is estimated to have [9 - 4] -> 5 rows, and we've consumed 2 of them.
+    assertEquals(0.4, reader.getFractionConsumed(), 1e-6);
 
     assertTrue(reader.advance());
     assertEquals(KV.of("h", 8L), reader.getCurrent());
-    // Stream is estimated to have [10 - 4] -> 6 rows, and we've consumed 4 of them.
-    assertEquals(0.66, reader.getFractionConsumed(), 0.01);
+    // Stream is estimated to have [10 - 4] -> 6 rows, and we've consumed 3 of them.
+    assertEquals(0.5, reader.getFractionConsumed(), 1e-6);
 
     assertTrue(reader.advance());
     assertEquals(KV.of("i", 9L), reader.getCurrent());
-    assertEquals(0.83, reader.getFractionConsumed(), 0.01);
+    assertEquals(0.667, reader.getFractionConsumed(), 1e-3);
 
     assertTrue(reader.advance());
     assertEquals(KV.of("j", 10L), reader.getCurrent());
-    assertEquals(1.0, reader.getFractionConsumed(), 0.01);
+    assertEquals(0.833, reader.getFractionConsumed(), 1e-3);
 
     assertFalse(reader.advance());
-    assertEquals(1.0, reader.getFractionConsumed(), 0.01);
-
-    assertEquals(readRowsRequest, mockStorageService.getRequests().get(0));
+    assertEquals(1.0, reader.getFractionConsumed(), 1e-6);
   }
 
   private Row.Builder createRowBuilder(String stringValue, long int64Value) {
