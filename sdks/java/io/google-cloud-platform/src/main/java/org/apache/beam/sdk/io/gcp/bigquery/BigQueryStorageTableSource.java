@@ -121,7 +121,7 @@ class BigQueryStorageTableSource<T> extends BoundedSource<T> {
     }
 
     Storage.ReadSession readSession = BigQueryHelpers.createReadSession(
-        bqServices.getTableReadService(bqOptions),
+        bqServices.newStorageClient(bqOptions),
         tableReference,
         readerCount,
         readSessionOptions);
@@ -130,18 +130,10 @@ class BigQueryStorageTableSource<T> extends BoundedSource<T> {
       return ImmutableList.of();
     }
 
-    Long readSizeBytes = tableSizeBytes / readSession.getStreamsCount();
     List<BoundedSource<T>> sources = new ArrayList<>(readSession.getStreamsCount());
     for (Storage.Stream stream : readSession.getStreamsList()) {
-      sources.add(new BigQueryStorageStreamSource<>(
-          bqServices,
-          parseFn,
-          coder,
-          readSession,
-          Storage.StreamPosition.newBuilder()
-              .setStream(stream)
-              .build(),
-          readSizeBytes));
+      sources.add(BigQueryStorageStreamSource.create(
+          readSession, stream, parseFn, coder, bqServices));
     }
 
     return ImmutableList.copyOf(sources);

@@ -21,8 +21,10 @@ import static org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.createJobIdTok
 import static org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.createTempTableReference;
 import static org.apache.beam.sdk.transforms.display.DisplayDataMatchers.hasDisplayItem;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 
 import com.google.api.services.bigquery.model.JobStatistics;
 import com.google.api.services.bigquery.model.JobStatistics2;
@@ -39,6 +41,7 @@ import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsResponse;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadSession;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.Stream;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.StreamPosition;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.StreamStats;
 import com.google.cloud.bigquery.v3.RowOuterClass.Row;
 import com.google.cloud.bigquery.v3.RowOuterClass.StructField;
 import com.google.cloud.bigquery.v3.RowOuterClass.StructType;
@@ -52,14 +55,17 @@ import com.google.common.collect.Lists;
 import java.math.BigInteger;
 import java.util.List;
 import org.apache.beam.sdk.Pipeline;
+import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.CoderRegistry;
 import org.apache.beam.sdk.coders.KvCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.coders.VarLongCoder;
 import org.apache.beam.sdk.extensions.protobuf.ProtoCoder;
 import org.apache.beam.sdk.io.BoundedSource;
+import org.apache.beam.sdk.io.BoundedSource.BoundedReader;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.ReadSessionOptions;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.TypedRead.Method;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryStorageStreamSource.SplitDisposition;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.ValueProvider;
@@ -70,7 +76,9 @@ import org.apache.beam.sdk.transforms.SerializableFunctions;
 import org.apache.beam.sdk.transforms.display.DisplayData;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
+import org.junit.AfterClass;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
@@ -122,6 +130,19 @@ public class BigQueryIOStorageApiReadTest {
   @Rule
   public final transient ExpectedException thrown = ExpectedException.none();
 
+  private static MockBigQueryStorageService mockStorageService;
+
+  @BeforeClass
+  public static void setUpClass() {
+    mockStorageService = new MockBigQueryStorageService();
+    mockStorageService.startServer();
+  }
+
+  @AfterClass
+  public static void tearDownClass() {
+    mockStorageService.stopServer();
+  }
+
   private final TableReference defaultTableReference =
       new TableReference()
           .setProjectId(DEFAULT_PROJECT_ID)
@@ -145,7 +166,6 @@ public class BigQueryIOStorageApiReadTest {
 
   private FakeDatasetService fakeDatasetService;
   private FakeJobService fakeJobService;
-  private FakeTableReadService fakeTableReadService;
   private FakeBigQueryServices fakeBigQueryServices;
 
   @Before
@@ -153,11 +173,11 @@ public class BigQueryIOStorageApiReadTest {
     FakeDatasetService.setUp();
     fakeDatasetService = new FakeDatasetService();
     fakeJobService = new FakeJobService();
-    fakeTableReadService = new FakeTableReadService();
+    mockStorageService.reset();
     fakeBigQueryServices = new FakeBigQueryServices()
         .withDatasetService(fakeDatasetService)
         .withJobService(fakeJobService)
-        .withTableReadService(fakeTableReadService);
+        .withStorageService(mockStorageService);
   }
 
   @Test
@@ -424,7 +444,7 @@ public class BigQueryIOStorageApiReadTest {
       sessionBuilder.addStreams(Stream.newBuilder());
     }
 
-    fakeTableReadService.setCreateSessionResult(createSessionRequest, sessionBuilder.build());
+    mockStorageService.addCreateSessionResponse(sessionBuilder.build());
 
     BoundedSource<Row> source = BigQueryStorageTableSource.create(
         ValueProvider.StaticValueProvider.of(defaultTableReference),
@@ -435,8 +455,7 @@ public class BigQueryIOStorageApiReadTest {
 
     List<? extends BoundedSource<Row>> sources = source.split(desiredBundleSizeBytes, options);
     assertEquals(50, sources.size());
-    long expectedSizeBytes = TABLE_SIZE_BYTES / 50;
-    assertEquals(expectedSizeBytes, sources.get(0).getEstimatedSizeBytes(options));
+    assertEquals(createSessionRequest, mockStorageService.getRequests().get(0));
   }
 
   @Test
@@ -456,7 +475,7 @@ public class BigQueryIOStorageApiReadTest {
         .addStreams(Stream.newBuilder())
         .build();
 
-    fakeTableReadService.setCreateSessionResult(createReadSessionRequest, readSession);
+    mockStorageService.addCreateSessionResponse(readSession);
 
     TableReference tableReference =
         new TableReference().setDatasetId(DEFAULT_DATASET_ID).setTableId(DEFAULT_TABLE_ID);
@@ -471,7 +490,7 @@ public class BigQueryIOStorageApiReadTest {
         .as(BigQueryOptions.class);
     List<? extends BoundedSource<Row>> sources = source.split(1024, options);
     assertEquals(1, sources.size());
-    assertEquals(TABLE_SIZE_BYTES, sources.get(0).getEstimatedSizeBytes(options));
+    assertEquals(createReadSessionRequest, mockStorageService.getRequests().get(0));
   }
 
   @Test
@@ -487,7 +506,7 @@ public class BigQueryIOStorageApiReadTest {
 
     // Return a session with no read locations.
     ReadSession readSession = ReadSession.newBuilder().setName("session").build();
-    fakeTableReadService.setCreateSessionResult(createReadSessionRequest, readSession);
+    mockStorageService.addCreateSessionResponse(readSession);
 
     BoundedSource<Row> source = BigQueryStorageTableSource.create(
         ValueProvider.StaticValueProvider.of(defaultTableReference),
@@ -498,6 +517,7 @@ public class BigQueryIOStorageApiReadTest {
 
     List<? extends BoundedSource<Row>> sources = source.split(1024, options);
     assertEquals(0, sources.size());
+    assertEquals(createReadSessionRequest, mockStorageService.getRequests().get(0));
   }
 
   @Test
@@ -623,7 +643,7 @@ public class BigQueryIOStorageApiReadTest {
         .addStreams(Stream.newBuilder().setName("stream name"))
         .build();
 
-    fakeTableReadService.setCreateSessionResult(createReadSessionRequest, readSession);
+    mockStorageService.addCreateSessionResponse(readSession);
 
     List<ReadRowsResponse> readRowsResponses = Lists.newArrayList(
         ReadRowsResponse.newBuilder()
@@ -640,7 +660,7 @@ public class BigQueryIOStorageApiReadTest {
                 .addFields(Value.newBuilder().setInt64Value(3L))))
             .build());
 
-    fakeTableReadService.setReadRowsResponses(readRowsRequest, readRowsResponses);
+    mockStorageService.addReadRowsResponses(readRowsResponses);
 
     Table table = new Table().setTableReference(defaultTableReference).setNumBytes(1L);
     fakeDatasetService.createDataset(DEFAULT_PROJECT_ID, DEFAULT_DATASET_ID, "", "", null);
@@ -662,6 +682,9 @@ public class BigQueryIOStorageApiReadTest {
         ImmutableList.of(KV.of("a", 1L), KV.of("b", 2L), KV.of("c", 3L)));
 
     pipeline.run();
+
+    assertEquals(createReadSessionRequest, mockStorageService.getRequests().get(0));
+    assertEquals(readRowsRequest, mockStorageService.getRequests().get(1));
   }
 
   @Test
@@ -792,19 +815,13 @@ public class BigQueryIOStorageApiReadTest {
                 .setTotalBytesProcessed(TABLE_SIZE_BYTES)
                 .setReferencedTables(ImmutableList.of(tempTableReference))));
 
-    CreateReadSessionRequest expectedCreateReadSessionRequest =
-        CreateReadSessionRequest.newBuilder(createReadSessionRequest)
-            .setTableReference(TableReferenceProto.TableReference.newBuilder()
-                .setProjectId(tempTableReference.getProjectId()))
-            .build();
-
     ReadSession readSession = ReadSession.newBuilder()
         .setName("session name")
         .setProjectedSchema(defaultStructType)
         .addStreams(Stream.newBuilder().setName("stream name"))
         .build();
 
-    fakeTableReadService.setCreateSessionResult(expectedCreateReadSessionRequest, readSession);
+    mockStorageService.addCreateSessionResponse(readSession);
 
     List<ReadRowsResponse> readRowsResponses = Lists.newArrayList(
         ReadRowsResponse.newBuilder()
@@ -821,7 +838,7 @@ public class BigQueryIOStorageApiReadTest {
                 .addFields(Value.newBuilder().setInt64Value(3L))))
             .build());
 
-    fakeTableReadService.setReadRowsResponses(readRowsRequest, readRowsResponses);
+    mockStorageService.addReadRowsResponses(readRowsResponses);
 
     Pipeline pipeline = TestPipeline.create(bqOptions);
 
@@ -837,5 +854,89 @@ public class BigQueryIOStorageApiReadTest {
         ImmutableList.of(KV.of("a", 1L), KV.of("b", 2L), KV.of("c", 3L)));
 
     pipeline.run();
+  }
+
+  @Test
+  public void testProgressEstimation() throws Exception {
+
+    BigQueryOptions bqOptions =
+        PipelineOptionsFactory.fromArgs("--project=" + DEFAULT_PROJECT_ID)
+            .as(BigQueryOptions.class);
+
+    Stream stream = Stream.newBuilder().setName("stream name").build();
+
+    ReadSession readSession = ReadSession.newBuilder()
+        .setName("session name").setProjectedSchema(defaultStructType).addStreams(stream).build();
+
+    ReadRowsRequest readRowsRequest = ReadRowsRequest.newBuilder()
+        .setReadPosition(StreamPosition.newBuilder().setStream(stream).setOffset(4))
+        .build();
+
+    List<ReadRowsResponse> readRowsResponses = Lists.newArrayList(
+        ReadRowsResponse.newBuilder()
+            .addRows(createRowBuilder("e", 5))
+            .addRows(createRowBuilder("f", 6))
+            .build(),
+        ReadRowsResponse.newBuilder()
+            .addRows(createRowBuilder("g", 7))
+            .setStatus(StreamStats.newBuilder().setTotalEstimatedRows(9L))
+            .build(),
+        ReadRowsResponse.newBuilder()
+            .addRows(createRowBuilder("h", 8))
+            .addRows(createRowBuilder("i", 9))
+            .addRows(createRowBuilder("j", 10))
+            .setStatus(StreamStats.newBuilder().setTotalEstimatedRows(10L))
+            .build());
+
+    mockStorageService.addReadRowsResponses(readRowsResponses);
+
+    SerializableFunction<SchemaAndRowProto, KV<String, Long>> parseFn =
+        (input) -> KV.of((String) input.get("name"), (Long) input.get("number"));
+
+    Coder<KV<String, Long>> coder = KvCoder.of(StringUtf8Coder.of(), VarLongCoder.of());
+
+    BigQueryStorageStreamSource<KV<String, Long>> source =
+        new BigQueryStorageStreamSource<>(readSession, stream, SplitDisposition.SELF, null,
+            4, Long.MAX_VALUE, parseFn, coder, fakeBigQueryServices);
+    assertEquals(4, source.getStartOffset());
+
+    BoundedReader<KV<String, Long>> reader = source.createReader(bqOptions);
+    assertEquals(0.0, reader.getFractionConsumed(), 0.01);
+
+    assertTrue(reader.start());
+    assertEquals(KV.of("e", 5L), reader.getCurrent());
+    assertNull(reader.getFractionConsumed());
+
+    assertTrue(reader.advance());
+    assertEquals(KV.of("f", 6L), reader.getCurrent());
+    assertNull(reader.getFractionConsumed());
+
+    assertTrue(reader.advance());
+    assertEquals(KV.of("g", 7L), reader.getCurrent());
+    // Stream is estimated to have [9 - 4] -> 5 rows, and we've consumed 2 of them.
+    assertEquals(0.4, reader.getFractionConsumed(), 1e-6);
+
+    assertTrue(reader.advance());
+    assertEquals(KV.of("h", 8L), reader.getCurrent());
+    // Stream is estimated to have [10 - 4] -> 6 rows, and we've consumed 3 of them.
+    assertEquals(0.5, reader.getFractionConsumed(), 1e-6);
+
+    assertTrue(reader.advance());
+    assertEquals(KV.of("i", 9L), reader.getCurrent());
+    assertEquals(0.667, reader.getFractionConsumed(), 1e-3);
+
+    assertTrue(reader.advance());
+    assertEquals(KV.of("j", 10L), reader.getCurrent());
+    assertEquals(0.833, reader.getFractionConsumed(), 1e-3);
+
+    assertFalse(reader.advance());
+    assertEquals(1.0, reader.getFractionConsumed(), 1e-6);
+  }
+
+  private Row.Builder createRowBuilder(String stringValue, long int64Value) {
+    return Row.newBuilder().setValue(
+        StructValue.newBuilder()
+            .addFields(Value.newBuilder().setStringValue(stringValue))
+            .addFields(Value.newBuilder().setInt64Value(int64Value)));
   }
 }

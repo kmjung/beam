@@ -25,6 +25,7 @@ import com.google.api.services.bigquery.model.JobStatus;
 import com.google.api.services.bigquery.model.TableReference;
 import com.google.api.services.bigquery.model.TableSchema;
 import com.google.api.services.bigquery.model.TimePartitioning;
+import com.google.cloud.bigquery.storage.v1alpha1.BigQueryStorageClient;
 import com.google.cloud.bigquery.storage.v1alpha1.ReadOptions;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage;
 import com.google.cloud.bigquery.v3.TableReferenceProto;
@@ -43,7 +44,6 @@ import org.apache.beam.sdk.io.FileSystems;
 import org.apache.beam.sdk.io.fs.ResolveOptions;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.ReadSessionOptions;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.DatasetService;
-import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.TableReadService;
 import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.beam.sdk.options.ValueProvider.NestedValueProvider;
 import org.apache.beam.sdk.transforms.SerializableFunction;
@@ -251,7 +251,7 @@ public class BigQueryHelpers {
   }
 
   static Storage.ReadSession createReadSession(
-      TableReadService tableReadService,
+      BigQueryStorageClient client,
       TableReference tableReference,
       int requestedStreams,
       ReadSessionOptions readSessionOptions) {
@@ -288,7 +288,7 @@ public class BigQueryHelpers {
       }
     }
 
-    return tableReadService.createSession(requestBuilder.build());
+    return client.createReadSession(requestBuilder.build());
   }
 
   @VisibleForTesting

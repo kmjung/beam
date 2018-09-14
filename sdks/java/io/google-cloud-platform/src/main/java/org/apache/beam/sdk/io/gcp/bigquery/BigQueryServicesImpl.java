@@ -49,14 +49,12 @@ import com.google.auth.Credentials;
 import com.google.auth.http.HttpCredentialsAdapter;
 import com.google.cloud.bigquery.storage.v1alpha1.BigQueryStorageClient;
 import com.google.cloud.bigquery.storage.v1alpha1.BigQueryStorageSettings;
-import com.google.cloud.bigquery.storage.v1alpha1.Storage;
 import com.google.cloud.hadoop.util.ApiErrorExtractor;
 import com.google.cloud.hadoop.util.ChainingHttpRequestInitializer;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
@@ -112,8 +110,15 @@ class BigQueryServicesImpl implements BigQueryServices {
   }
 
   @Override
-  public TableReadService getTableReadService(BigQueryOptions options) throws IOException {
-    return new TableReadServiceImpl(options);
+  public BigQueryStorageClient newStorageClient(BigQueryOptions options) throws IOException {
+
+    BigQueryStorageSettings settings =
+        BigQueryStorageSettings.newBuilder()
+            .setCredentialsProvider(
+                FixedCredentialsProvider.create(options.getGcpCredential()))
+            .build();
+
+    return BigQueryStorageClient.create(settings);
   }
 
   private static BackOff createDefaultBackoff() {
@@ -842,28 +847,6 @@ class BigQueryServicesImpl implements BigQueryServices {
           Sleeper.DEFAULT,
           createDefaultBackoff(),
           ALWAYS_RETRY);
-    }
-  }
-
-  static class TableReadServiceImpl implements TableReadService {
-
-    private BigQueryStorageClient client;
-
-    private TableReadServiceImpl(BigQueryOptions options) throws IOException {
-      BigQueryStorageSettings settings = BigQueryStorageSettings.newBuilder()
-          .setCredentialsProvider(FixedCredentialsProvider.create(options.getGcpCredential()))
-          .build();
-      this.client = BigQueryStorageClient.create(settings);
-    }
-
-    @Override
-    public Storage.ReadSession createSession(Storage.CreateReadSessionRequest request) {
-      return client.createReadSession(request);
-    }
-
-    @Override
-    public Iterator<Storage.ReadRowsResponse> readRows(Storage.ReadRowsRequest request) {
-      return client.readRowsCallable().blockingServerStreamingCall(request);
     }
   }
 
