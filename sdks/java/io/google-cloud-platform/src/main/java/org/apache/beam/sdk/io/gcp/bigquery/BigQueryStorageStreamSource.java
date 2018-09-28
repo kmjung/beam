@@ -49,12 +49,7 @@ public class BigQueryStorageStreamSource<T> extends BoundedSource<T> {
       Storage.StreamPosition streamPosition,
       Long readSizeBytes) {
     return new BigQueryStorageStreamSource<>(
-        bqServices,
-        parseFn,
-        coder,
-        readSession,
-        streamPosition,
-        readSizeBytes);
+        bqServices, parseFn, coder, readSession, streamPosition, readSizeBytes);
   }
 
   private final BigQueryServices bqServices;
@@ -107,9 +102,7 @@ public class BigQueryStorageStreamSource<T> extends BoundedSource<T> {
     return coder;
   }
 
-  /**
-   * Iterates over all rows assigned to a particular reader in a read session.
-   */
+  /** Iterates over all rows assigned to a particular reader in a read session. */
   @Experimental(Experimental.Kind.SOURCE_SINK)
   static class BigQueryStorageStreamReader<T> extends BoundedReader<T> {
 
@@ -136,13 +129,12 @@ public class BigQueryStorageStreamSource<T> extends BoundedSource<T> {
       this.source = checkNotNull(source, "source");
       this.options = options;
 
-      this.request = Storage.ReadRowsRequest.newBuilder()
-          .setReadPosition(streamPosition)
-          .build();
+      this.request = Storage.ReadRowsRequest.newBuilder().setReadPosition(streamPosition).build();
     }
 
     /**
      * Empty operation, the table is already open for read.
+     *
      * @throws IOException on failure
      */
     @Override

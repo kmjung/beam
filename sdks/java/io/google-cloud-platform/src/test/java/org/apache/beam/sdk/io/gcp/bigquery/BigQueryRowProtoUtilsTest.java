@@ -35,63 +35,106 @@ import com.google.protobuf.ByteString;
 import com.google.protobuf.Timestamp;
 import org.junit.Test;
 
-/**
- * Tests for {@link BigQueryRowProtoUtils}.
- */
+/** Tests for {@link BigQueryRowProtoUtils}. */
 public class BigQueryRowProtoUtilsTest {
 
-  private StructType tableSchema = StructType.newBuilder()
-      .addFields(StructField.newBuilder().setFieldName("number")
-          .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_INT64)))
-      .addFields(StructField.newBuilder().setFieldName("species")
-          .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_STRING)))
-      .addFields(StructField.newBuilder().setFieldName("quality")
-          .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_FLOAT64)))
-      .addFields(StructField.newBuilder().setFieldName("quantity")
-          .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_INT64)))
-      .addFields(StructField.newBuilder().setFieldName("birthday")
-          .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_TIMESTAMP)))
-      .addFields(StructField.newBuilder().setFieldName("flighted")
-          .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_BOOL)))
-      .addFields(StructField.newBuilder().setFieldName("sound")
-          .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_BYTES)))
-      .addFields(StructField.newBuilder().setFieldName("anniversaryDate")
-          .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_DATE)))
-      .addFields(StructField.newBuilder().setFieldName("anniversaryDateTime")
-          .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_DATETIME)))
-      .addFields(StructField.newBuilder().setFieldName("anniversaryTime")
-          .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_TIME)))
-      .addFields(StructField.newBuilder().setFieldName("associates")
-          .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_ARRAY)
-              .setArrayType(Type.newBuilder().setTypeKind(TypeKind.TYPE_STRING))))
-      .addFields(StructField.newBuilder().setFieldName("scion")
-          .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_STRUCT)
-              .setStructType(StructType.newBuilder()
-                  .addFields(StructField.newBuilder().setFieldName("species")
-                      .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_STRING)))
-                  .addFields(StructField.newBuilder().setFieldName("genus")
-                      .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_STRING))))))
-      .build();
+  private StructType tableSchema =
+      StructType.newBuilder()
+          .addFields(
+              StructField.newBuilder()
+                  .setFieldName("number")
+                  .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_INT64)))
+          .addFields(
+              StructField.newBuilder()
+                  .setFieldName("species")
+                  .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_STRING)))
+          .addFields(
+              StructField.newBuilder()
+                  .setFieldName("quality")
+                  .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_FLOAT64)))
+          .addFields(
+              StructField.newBuilder()
+                  .setFieldName("quantity")
+                  .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_INT64)))
+          .addFields(
+              StructField.newBuilder()
+                  .setFieldName("birthday")
+                  .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_TIMESTAMP)))
+          .addFields(
+              StructField.newBuilder()
+                  .setFieldName("flighted")
+                  .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_BOOL)))
+          .addFields(
+              StructField.newBuilder()
+                  .setFieldName("sound")
+                  .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_BYTES)))
+          .addFields(
+              StructField.newBuilder()
+                  .setFieldName("anniversaryDate")
+                  .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_DATE)))
+          .addFields(
+              StructField.newBuilder()
+                  .setFieldName("anniversaryDateTime")
+                  .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_DATETIME)))
+          .addFields(
+              StructField.newBuilder()
+                  .setFieldName("anniversaryTime")
+                  .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_TIME)))
+          .addFields(
+              StructField.newBuilder()
+                  .setFieldName("associates")
+                  .setFieldType(
+                      Type.newBuilder()
+                          .setTypeKind(TypeKind.TYPE_ARRAY)
+                          .setArrayType(Type.newBuilder().setTypeKind(TypeKind.TYPE_STRING))))
+          .addFields(
+              StructField.newBuilder()
+                  .setFieldName("scion")
+                  .setFieldType(
+                      Type.newBuilder()
+                          .setTypeKind(TypeKind.TYPE_STRUCT)
+                          .setStructType(
+                              StructType.newBuilder()
+                                  .addFields(
+                                      StructField.newBuilder()
+                                          .setFieldName("species")
+                                          .setFieldType(
+                                              Type.newBuilder().setTypeKind(TypeKind.TYPE_STRING)))
+                                  .addFields(
+                                      StructField.newBuilder()
+                                          .setFieldName("genus")
+                                          .setFieldType(
+                                              Type.newBuilder()
+                                                  .setTypeKind(TypeKind.TYPE_STRING))))))
+          .build();
 
   @Test
   public void testConvertRowProtoToTableRow() throws Exception {
 
     {
       // Test all fields are nullable.
-      Row row = Row.newBuilder().setValue(StructValue.newBuilder()
-          .addFields(Value.newBuilder().setNullValue(NullValue.NULL_VALUE))  // number
-          .addFields(Value.newBuilder().setNullValue(NullValue.NULL_VALUE))  // species
-          .addFields(Value.newBuilder().setNullValue(NullValue.NULL_VALUE))  // quality
-          .addFields(Value.newBuilder().setNullValue(NullValue.NULL_VALUE))  // quantity
-          .addFields(Value.newBuilder().setNullValue(NullValue.NULL_VALUE))  // birthday
-          .addFields(Value.newBuilder().setNullValue(NullValue.NULL_VALUE))  // flighted
-          .addFields(Value.newBuilder().setNullValue(NullValue.NULL_VALUE))  // sound
-          .addFields(Value.newBuilder().setNullValue(NullValue.NULL_VALUE))  // anniversaryDate
-          .addFields(Value.newBuilder().setNullValue(NullValue.NULL_VALUE))  // anniversaryDateTime
-          .addFields(Value.newBuilder().setNullValue(NullValue.NULL_VALUE))  // anniversaryTime
-          .addFields(Value.newBuilder().setNullValue(NullValue.NULL_VALUE))  // associates
-          .addFields(Value.newBuilder().setNullValue(NullValue.NULL_VALUE))) // scion
-          .build();
+      Row row =
+          Row.newBuilder()
+              .setValue(
+                  StructValue.newBuilder()
+                      .addFields(Value.newBuilder().setNullValue(NullValue.NULL_VALUE)) // number
+                      .addFields(Value.newBuilder().setNullValue(NullValue.NULL_VALUE)) // species
+                      .addFields(Value.newBuilder().setNullValue(NullValue.NULL_VALUE)) // quality
+                      .addFields(Value.newBuilder().setNullValue(NullValue.NULL_VALUE)) // quantity
+                      .addFields(Value.newBuilder().setNullValue(NullValue.NULL_VALUE)) // birthday
+                      .addFields(Value.newBuilder().setNullValue(NullValue.NULL_VALUE)) // flighted
+                      .addFields(Value.newBuilder().setNullValue(NullValue.NULL_VALUE)) // sound
+                      .addFields(
+                          Value.newBuilder().setNullValue(NullValue.NULL_VALUE)) // anniversaryDate
+                      .addFields(
+                          Value.newBuilder()
+                              .setNullValue(NullValue.NULL_VALUE)) // anniversaryDateTime
+                      .addFields(
+                          Value.newBuilder().setNullValue(NullValue.NULL_VALUE)) // anniversaryTime
+                      .addFields(
+                          Value.newBuilder().setNullValue(NullValue.NULL_VALUE)) // associates
+                      .addFields(Value.newBuilder().setNullValue(NullValue.NULL_VALUE))) // scion
+              .build();
 
       TableRow expectedRow = new TableRow();
 
@@ -103,42 +146,50 @@ public class BigQueryRowProtoUtilsTest {
       byte[] soundBytes = "chirp,chirp".getBytes();
       ByteString byteString = ByteString.copyFrom(soundBytes);
 
-      Row row = Row.newBuilder().setValue(StructValue.newBuilder()
-          .addFields(Value.newBuilder().setInt64Value(1))             // number
-          .addFields(Value.newBuilder().setStringValue("chickadee"))  // species
-          .addFields(Value.newBuilder().setFloat64Value(10.0))        // quality
-          .addFields(Value.newBuilder().setInt64Value(5))             // quantity
-          .addFields(Value.newBuilder().setTimestampValue(Timestamp.newBuilder().setNanos(500)))
-          .addFields(Value.newBuilder().setBoolValue(true))           // flighted
-          .addFields(Value.newBuilder().setBytesValue(byteString))    // sound
-          .addFields(Value.newBuilder().setStringValue("2000-01-01")) // anniversaryDate
-          .addFields(Value.newBuilder().setStringValue("2000-01-01 00:00:00.000005"))
-          .addFields(Value.newBuilder().setStringValue("00:00:00.000005"))
-          .addFields(Value.newBuilder()
-              .setArrayValue(ArrayValue.newBuilder()
-                  .addElements(Value.newBuilder().setStringValue("Tweety"))
-                  .addElements(Value.newBuilder().setStringValue("Woody"))))
-          .addFields(Value.newBuilder()
-              .setStructValue(StructValue.newBuilder()
-                  .addFields(Value.newBuilder().setStringValue("atricapillus"))
-                  .addFields(Value.newBuilder().setStringValue("poecile")))))
-          .build();
+      Row row =
+          Row.newBuilder()
+              .setValue(
+                  StructValue.newBuilder()
+                      .addFields(Value.newBuilder().setInt64Value(1)) // number
+                      .addFields(Value.newBuilder().setStringValue("chickadee")) // species
+                      .addFields(Value.newBuilder().setFloat64Value(10.0)) // quality
+                      .addFields(Value.newBuilder().setInt64Value(5)) // quantity
+                      .addFields(
+                          Value.newBuilder()
+                              .setTimestampValue(Timestamp.newBuilder().setNanos(500)))
+                      .addFields(Value.newBuilder().setBoolValue(true)) // flighted
+                      .addFields(Value.newBuilder().setBytesValue(byteString)) // sound
+                      .addFields(Value.newBuilder().setStringValue("2000-01-01")) // anniversaryDate
+                      .addFields(Value.newBuilder().setStringValue("2000-01-01 00:00:00.000005"))
+                      .addFields(Value.newBuilder().setStringValue("00:00:00.000005"))
+                      .addFields(
+                          Value.newBuilder()
+                              .setArrayValue(
+                                  ArrayValue.newBuilder()
+                                      .addElements(Value.newBuilder().setStringValue("Tweety"))
+                                      .addElements(Value.newBuilder().setStringValue("Woody"))))
+                      .addFields(
+                          Value.newBuilder()
+                              .setStructValue(
+                                  StructValue.newBuilder()
+                                      .addFields(Value.newBuilder().setStringValue("atricapillus"))
+                                      .addFields(Value.newBuilder().setStringValue("poecile")))))
+              .build();
 
-      TableRow expectedRow = new TableRow()
-          .set("number", "1")
-          .set("species", "chickadee")
-          .set("quality", 10.0D)
-          .set("quantity", "5")
-          .set("birthday", "1970-01-01 00:00:00.0000005 UTC")
-          .set("flighted", Boolean.TRUE)
-          .set("sound", BaseEncoding.base64().encode(soundBytes))
-          .set("anniversaryDate", "2000-01-01")
-          .set("anniversaryDateTime", "2000-01-01 00:00:00.000005")
-          .set("anniversaryTime", "00:00:00.000005")
-          .set("associates", Lists.newArrayList("Tweety", "Woody"))
-          .set("scion", new TableRow()
-              .set("species", "atricapillus")
-              .set("genus", "poecile"));
+      TableRow expectedRow =
+          new TableRow()
+              .set("number", "1")
+              .set("species", "chickadee")
+              .set("quality", 10.0D)
+              .set("quantity", "5")
+              .set("birthday", "1970-01-01 00:00:00.0000005 UTC")
+              .set("flighted", Boolean.TRUE)
+              .set("sound", BaseEncoding.base64().encode(soundBytes))
+              .set("anniversaryDate", "2000-01-01")
+              .set("anniversaryDateTime", "2000-01-01 00:00:00.000005")
+              .set("anniversaryTime", "00:00:00.000005")
+              .set("associates", Lists.newArrayList("Tweety", "Woody"))
+              .set("scion", new TableRow().set("species", "atricapillus").set("genus", "poecile"));
 
       assertEquals(expectedRow, BigQueryRowProtoUtils.convertRowProtoToTableRow(tableSchema, row));
     }

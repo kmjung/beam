@@ -30,8 +30,8 @@ import com.google.cloud.bigquery.v3.RowOuterClass.Value.ValueCase;
 import javax.annotation.Nullable;
 
 /**
- * A wrapper for a {@link Row} and the {@link StructType} representing the schema of the
- * table it was generated from. Also provides utility methods to extract data.
+ * A wrapper for a {@link Row} and the {@link StructType} representing the schema of the table it
+ * was generated from. Also provides utility methods to extract data.
  */
 public class SchemaAndRowProto {
   private final StructType tableSchema;
@@ -51,9 +51,7 @@ public class SchemaAndRowProto {
     return tableSchema;
   }
 
-  /**
-   * Gets the value of the specified (possibly nested) field or null if it can't be found.
-   */
+  /** Gets the value of the specified (possibly nested) field or null if it can't be found. */
   @Nullable
   public Object get(String fieldName) {
     String[] subFieldNames = fieldName.split("\\.");

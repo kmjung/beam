@@ -34,9 +34,7 @@ import java.util.Iterator;
 import java.util.List;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.TableReadService;
 
-/**
- * A fake implementation of {@link TableReadService} for testing.
- */
+/** A fake implementation of {@link TableReadService} for testing. */
 public class FakeTableReadService implements TableReadService, Serializable {
 
   private CreateReadSessionRequest createReadSessionRequest;
@@ -44,8 +42,8 @@ public class FakeTableReadService implements TableReadService, Serializable {
   private ReadRowsRequest readRowsRequest;
   private List<ReadRowsResponse> readRowsResponses;
 
-  void setCreateSessionResult(CreateReadSessionRequest createSessionRequest,
-      ReadSession readSession) {
+  void setCreateSessionResult(
+      CreateReadSessionRequest createSessionRequest, ReadSession readSession) {
     this.createReadSessionRequest = createSessionRequest;
     this.readSession = readSession;
   }
@@ -60,8 +58,8 @@ public class FakeTableReadService implements TableReadService, Serializable {
   public ReadSession createSession(CreateReadSessionRequest request) {
 
     if (createReadSessionRequest.hasTableReference()) {
-      TableReferenceProto.TableReference tableReference = createReadSessionRequest
-          .getTableReference();
+      TableReferenceProto.TableReference tableReference =
+          createReadSessionRequest.getTableReference();
       if (!Strings.isNullOrEmpty(tableReference.getProjectId())) {
         assertThat(request.getTableReference().getProjectId(), is(tableReference.getProjectId()));
       }
@@ -74,8 +72,8 @@ public class FakeTableReadService implements TableReadService, Serializable {
     }
 
     if (!Strings.isNullOrEmpty(createReadSessionRequest.getBillableProjectId())) {
-      assertThat(request.getBillableProjectId(),
-          is(createReadSessionRequest.getBillableProjectId()));
+      assertThat(
+          request.getBillableProjectId(), is(createReadSessionRequest.getBillableProjectId()));
     }
 
     if (createReadSessionRequest.hasReadOptions()) {

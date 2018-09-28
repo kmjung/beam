@@ -158,14 +158,10 @@ public interface BigQueryServices extends Serializable {
 
   interface TableReadService {
 
-    /**
-     * Creates a new read session against an existing table.
-     */
+    /** Creates a new read session against an existing table. */
     Storage.ReadSession createSession(Storage.CreateReadSessionRequest request);
 
-    /**
-     * Initiates a read stream from an existing session and read location.
-     */
+    /** Initiates a read stream from an existing session and read location. */
     Iterator<Storage.ReadRowsResponse> readRows(Storage.ReadRowsRequest request);
   }
 }

@@ -57,7 +57,6 @@ import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -879,9 +878,10 @@ class BigQueryServicesImpl implements BigQueryServices {
     private BigQueryStorageClient client;
 
     private TableReadServiceImpl(BigQueryOptions options) throws IOException {
-      BigQueryStorageSettings settings = BigQueryStorageSettings.newBuilder()
-          .setCredentialsProvider(FixedCredentialsProvider.create(options.getGcpCredential()))
-          .build();
+      BigQueryStorageSettings settings =
+          BigQueryStorageSettings.newBuilder()
+              .setCredentialsProvider(FixedCredentialsProvider.create(options.getGcpCredential()))
+              .build();
       this.client = BigQueryStorageClient.create(settings);
     }
 

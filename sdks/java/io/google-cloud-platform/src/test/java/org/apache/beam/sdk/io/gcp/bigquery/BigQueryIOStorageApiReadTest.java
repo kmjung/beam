@@ -80,9 +80,7 @@ import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 import org.junit.runners.model.Statement;
 
-/**
- * Tests for {@link BigQueryIO#readViaRowProto} and related functionality.
- */
+/** Tests for {@link BigQueryIO#readViaRowProto} and related functionality. */
 @RunWith(JUnit4.class)
 public class BigQueryIOStorageApiReadTest {
 
@@ -105,22 +103,23 @@ public class BigQueryIOStorageApiReadTest {
   @Rule
   public final transient TestRule folderThenPipelineRule =
       (base, description) -> {
-        Statement withPipeline = new Statement() {
-          @Override
-          public void evaluate() throws Throwable {
-            options = TestPipeline.testingPipelineOptions();
-            options.as(BigQueryOptions.class).setProject("project-id");
-            options.as(BigQueryOptions.class).setTempLocation(
-                testFolder.getRoot().getAbsolutePath());
-            pipeline = TestPipeline.fromOptions(options);
-            pipeline.apply(base, description).evaluate();
-          }
-        };
+        Statement withPipeline =
+            new Statement() {
+              @Override
+              public void evaluate() throws Throwable {
+                options = TestPipeline.testingPipelineOptions();
+                options.as(BigQueryOptions.class).setProject("project-id");
+                options
+                    .as(BigQueryOptions.class)
+                    .setTempLocation(testFolder.getRoot().getAbsolutePath());
+                pipeline = TestPipeline.fromOptions(options);
+                pipeline.apply(base, description).evaluate();
+              }
+            };
         return testFolder.apply(withPipeline, description);
       };
 
-  @Rule
-  public final transient ExpectedException thrown = ExpectedException.none();
+  @Rule public final transient ExpectedException thrown = ExpectedException.none();
 
   private final TableReference defaultTableReference =
       new TableReference()
@@ -137,10 +136,14 @@ public class BigQueryIOStorageApiReadTest {
 
   private final StructType defaultStructType =
       StructType.newBuilder()
-          .addFields(StructField.newBuilder().setFieldName("name")
-              .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_STRING)))
-          .addFields(StructField.newBuilder().setFieldName("number")
-              .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_INT64)))
+          .addFields(
+              StructField.newBuilder()
+                  .setFieldName("name")
+                  .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_STRING)))
+          .addFields(
+              StructField.newBuilder()
+                  .setFieldName("number")
+                  .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_INT64)))
           .build();
 
   private FakeDatasetService fakeDatasetService;
@@ -154,59 +157,65 @@ public class BigQueryIOStorageApiReadTest {
     fakeDatasetService = new FakeDatasetService();
     fakeJobService = new FakeJobService();
     fakeTableReadService = new FakeTableReadService();
-    fakeBigQueryServices = new FakeBigQueryServices()
-        .withDatasetService(fakeDatasetService)
-        .withJobService(fakeJobService)
-        .withTableReadService(fakeTableReadService);
+    fakeBigQueryServices =
+        new FakeBigQueryServices()
+            .withDatasetService(fakeDatasetService)
+            .withJobService(fakeJobService)
+            .withTableReadService(fakeTableReadService);
   }
 
   @Test
   public void testBuildTableSource() {
-    BigQueryIO.TypedRead typedRead = BigQueryIO.readViaRowProto(SerializableFunctions.identity())
-        .from(DEFAULT_TABLE_REFERENCE_STRING);
+    BigQueryIO.TypedRead typedRead =
+        BigQueryIO.readViaRowProto(SerializableFunctions.identity())
+            .from(DEFAULT_TABLE_REFERENCE_STRING);
     checkTypedReadTableObject(typedRead, DEFAULT_PROJECT_ID, DEFAULT_DATASET_ID, DEFAULT_TABLE_ID);
   }
 
   @Test
   public void testBuildQuerySource() {
-    BigQueryIO.TypedRead typedRead = BigQueryIO.readViaRowProto(SerializableFunctions.identity())
-        .fromQuery("SELECT * FROM my_table");
+    BigQueryIO.TypedRead typedRead =
+        BigQueryIO.readViaRowProto(SerializableFunctions.identity())
+            .fromQuery("SELECT * FROM my_table");
     checkTypedReadQueryObject(typedRead, "SELECT * FROM my_table");
   }
 
   @Test
   public void testBuildTableSourceWithoutValidation() {
-    BigQueryIO.TypedRead typedRead = BigQueryIO.readViaRowProto(SerializableFunctions.identity())
-        .from(DEFAULT_TABLE_REFERENCE_STRING)
-        .withoutValidation();
-    checkTypedReadTableObject(typedRead, DEFAULT_PROJECT_ID, DEFAULT_DATASET_ID, DEFAULT_TABLE_ID,
-        false);
+    BigQueryIO.TypedRead typedRead =
+        BigQueryIO.readViaRowProto(SerializableFunctions.identity())
+            .from(DEFAULT_TABLE_REFERENCE_STRING)
+            .withoutValidation();
+    checkTypedReadTableObject(
+        typedRead, DEFAULT_PROJECT_ID, DEFAULT_DATASET_ID, DEFAULT_TABLE_ID, false);
   }
 
   @Test
   public void testBuildQuerySourceWithoutValidation() {
-    BigQueryIO.TypedRead typedRead = BigQueryIO.readViaRowProto(SerializableFunctions.identity())
-        .fromQuery("SELECT * FROM my_table")
-        .withoutValidation();
+    BigQueryIO.TypedRead typedRead =
+        BigQueryIO.readViaRowProto(SerializableFunctions.identity())
+            .fromQuery("SELECT * FROM my_table")
+            .withoutValidation();
     checkTypedReadQueryObject(typedRead, "SELECT * FROM my_table", false);
   }
 
   @Test
   public void testBuildTableSourceWithDefaultProject() {
-    BigQueryIO.TypedRead typedRead = BigQueryIO.readViaRowProto(SerializableFunctions.identity())
-        .from(DEFAULT_DATASET_ID + "." + DEFAULT_TABLE_ID);
+    BigQueryIO.TypedRead typedRead =
+        BigQueryIO.readViaRowProto(SerializableFunctions.identity())
+            .from(DEFAULT_DATASET_ID + "." + DEFAULT_TABLE_ID);
     checkTypedReadTableObject(typedRead, null, DEFAULT_DATASET_ID, DEFAULT_TABLE_ID);
   }
 
   @Test
   public void testBuildTableSourceWithTableReference() {
-    BigQueryIO.TypedRead typedRead = BigQueryIO.readViaRowProto(SerializableFunctions.identity())
-        .from(defaultTableReference);
+    BigQueryIO.TypedRead typedRead =
+        BigQueryIO.readViaRowProto(SerializableFunctions.identity()).from(defaultTableReference);
     checkTypedReadTableObject(typedRead, DEFAULT_PROJECT_ID, DEFAULT_DATASET_ID, DEFAULT_TABLE_ID);
   }
 
-  private void checkTypedReadTableObject(BigQueryIO.TypedRead typedRead,
-      String project, String dataset, String table) {
+  private void checkTypedReadTableObject(
+      BigQueryIO.TypedRead typedRead, String project, String dataset, String table) {
     checkTypedReadTableObject(typedRead, project, dataset, table, true);
   }
 
@@ -214,8 +223,12 @@ public class BigQueryIOStorageApiReadTest {
     checkTypedReadQueryObject(typedRead, query, true);
   }
 
-  private void checkTypedReadTableObject(BigQueryIO.TypedRead typedRead,
-      String projectId, String datasetId, String tableId, boolean validate) {
+  private void checkTypedReadTableObject(
+      BigQueryIO.TypedRead typedRead,
+      String projectId,
+      String datasetId,
+      String tableId,
+      boolean validate) {
     assertEquals(projectId, typedRead.getTable().getProjectId());
     assertEquals(datasetId, typedRead.getTable().getDatasetId());
     assertEquals(tableId, typedRead.getTable().getTableId());
@@ -234,20 +247,16 @@ public class BigQueryIOStorageApiReadTest {
   @Test
   public void testBuildTableSourceWithNullParseFn() {
     thrown.expect(IllegalArgumentException.class);
-    thrown.expectMessage(
-        "A row proto parseFn is required when using TypedRead.Method.READ");
-    pipeline.apply(BigQueryIO.readViaRowProto(null)
-        .from(DEFAULT_TABLE_REFERENCE_STRING));
+    thrown.expectMessage("A row proto parseFn is required when using TypedRead.Method.READ");
+    pipeline.apply(BigQueryIO.readViaRowProto(null).from(DEFAULT_TABLE_REFERENCE_STRING));
     pipeline.run();
   }
 
   @Test
   public void testBuildQuerySourceWithNullParseFn() {
     thrown.expect(IllegalArgumentException.class);
-    thrown.expectMessage(
-        "A row proto parseFn is required when using TypedRead.Method.READ");
-    pipeline.apply(BigQueryIO.readViaRowProto(null)
-        .fromQuery("SELECT * FROM my_table"));
+    thrown.expectMessage("A row proto parseFn is required when using TypedRead.Method.READ");
+    pipeline.apply(BigQueryIO.readViaRowProto(null).fromQuery("SELECT * FROM my_table"));
     pipeline.run();
   }
 
@@ -256,9 +265,10 @@ public class BigQueryIOStorageApiReadTest {
     thrown.expect(IllegalArgumentException.class);
     thrown.expectMessage(
         "Specifies a table with a result flattening preference, which only applies to queries");
-    pipeline.apply(BigQueryIO.readViaRowProto(SerializableFunctions.identity())
-        .from(DEFAULT_TABLE_REFERENCE_STRING)
-        .withoutResultFlattening());
+    pipeline.apply(
+        BigQueryIO.readViaRowProto(SerializableFunctions.identity())
+            .from(DEFAULT_TABLE_REFERENCE_STRING)
+            .withoutResultFlattening());
     pipeline.run();
   }
 
@@ -267,10 +277,11 @@ public class BigQueryIOStorageApiReadTest {
     thrown.expect(IllegalArgumentException.class);
     thrown.expectMessage(
         "Specifies a table with a result flattening preference, which only applies to queries");
-    pipeline.apply(BigQueryIO.readViaRowProto(SerializableFunctions.identity())
-        .from(DEFAULT_TABLE_REFERENCE_STRING)
-        .withoutResultFlattening()
-        .withoutValidation());
+    pipeline.apply(
+        BigQueryIO.readViaRowProto(SerializableFunctions.identity())
+            .from(DEFAULT_TABLE_REFERENCE_STRING)
+            .withoutResultFlattening()
+            .withoutValidation());
     pipeline.run();
   }
 
@@ -279,9 +290,10 @@ public class BigQueryIOStorageApiReadTest {
     thrown.expect(IllegalArgumentException.class);
     thrown.expectMessage(
         "Specifies a table with a SQL dialect preference, which only applies to queries");
-    pipeline.apply(BigQueryIO.readViaRowProto(SerializableFunctions.identity())
-        .from(DEFAULT_TABLE_REFERENCE_STRING)
-        .usingStandardSql());
+    pipeline.apply(
+        BigQueryIO.readViaRowProto(SerializableFunctions.identity())
+            .from(DEFAULT_TABLE_REFERENCE_STRING)
+            .usingStandardSql());
     pipeline.run();
   }
 
@@ -290,33 +302,37 @@ public class BigQueryIOStorageApiReadTest {
     thrown.expect(IllegalArgumentException.class);
     thrown.expectMessage(
         "Specifies a table with a SQL dialect preference, which only applies to queries");
-    pipeline.apply(BigQueryIO.readViaRowProto(SerializableFunctions.identity())
-        .from(DEFAULT_TABLE_REFERENCE_STRING)
-        .usingStandardSql()
-        .withoutValidation());
+    pipeline.apply(
+        BigQueryIO.readViaRowProto(SerializableFunctions.identity())
+            .from(DEFAULT_TABLE_REFERENCE_STRING)
+            .usingStandardSql()
+            .withoutValidation());
     pipeline.run();
   }
 
   @Test
   public void testTableSourceDisplayData() {
-    BigQueryIO.TypedRead typedRead = BigQueryIO.readViaRowProto(SerializableFunctions.identity())
-        .from(DEFAULT_TABLE_REFERENCE_STRING);
+    BigQueryIO.TypedRead typedRead =
+        BigQueryIO.readViaRowProto(SerializableFunctions.identity())
+            .from(DEFAULT_TABLE_REFERENCE_STRING);
     DisplayData displayData = DisplayData.from(typedRead);
     assertThat(displayData, hasDisplayItem("table", DEFAULT_TABLE_REFERENCE_STRING));
   }
 
   @Test
   public void testQuerySourceDisplayData() {
-    BigQueryIO.TypedRead typedRead = BigQueryIO.readViaRowProto(SerializableFunctions.identity())
-        .fromQuery("SELECT * FROM my_table");
+    BigQueryIO.TypedRead typedRead =
+        BigQueryIO.readViaRowProto(SerializableFunctions.identity())
+            .fromQuery("SELECT * FROM my_table");
     DisplayData displayData = DisplayData.from(typedRead);
     assertThat(displayData, hasDisplayItem("query", "SELECT * FROM my_table"));
   }
 
   @Test
   public void testTypedReadName() {
-    BigQueryIO.TypedRead typedRead = BigQueryIO.readViaRowProto(SerializableFunctions.identity())
-        .from(DEFAULT_TABLE_REFERENCE_STRING);
+    BigQueryIO.TypedRead typedRead =
+        BigQueryIO.readViaRowProto(SerializableFunctions.identity())
+            .from(DEFAULT_TABLE_REFERENCE_STRING);
     assertEquals("BigQueryIO.TypedRead", typedRead.getName());
   }
 
@@ -339,12 +355,13 @@ public class BigQueryIOStorageApiReadTest {
     fakeDatasetService.createDataset(DEFAULT_PROJECT_ID, DEFAULT_DATASET_ID, "", "", null);
     fakeDatasetService.createTable(table);
 
-    BoundedSource<Row> source = BigQueryStorageTableSource.create(
-        ValueProvider.StaticValueProvider.of(defaultTableReference),
-        SchemaAndRowProto::getRow,
-        ProtoCoder.of(Row.class),
-        fakeBigQueryServices,
-        null);
+    BoundedSource<Row> source =
+        BigQueryStorageTableSource.create(
+            ValueProvider.StaticValueProvider.of(defaultTableReference),
+            SchemaAndRowProto::getRow,
+            ProtoCoder.of(Row.class),
+            fakeBigQueryServices,
+            null);
 
     PipelineOptions pipelineOptions = PipelineOptionsFactory.create();
     assertEquals(100, source.getEstimatedSizeBytes(pipelineOptions));
@@ -354,12 +371,13 @@ public class BigQueryIOStorageApiReadTest {
   public void testTableSourceEstimatedSizeWithNullTable() throws Exception {
     fakeDatasetService.createDataset(DEFAULT_PROJECT_ID, DEFAULT_DATASET_ID, "", "", null);
 
-    BoundedSource<Row> source = BigQueryStorageTableSource.create(
-        ValueProvider.StaticValueProvider.of(defaultTableReference),
-        SchemaAndRowProto::getRow,
-        ProtoCoder.of(Row.class),
-        fakeBigQueryServices,
-        null);
+    BoundedSource<Row> source =
+        BigQueryStorageTableSource.create(
+            ValueProvider.StaticValueProvider.of(defaultTableReference),
+            SchemaAndRowProto::getRow,
+            ProtoCoder.of(Row.class),
+            fakeBigQueryServices,
+            null);
 
     PipelineOptions pipelineOptions = PipelineOptionsFactory.create();
     assertEquals(0, source.getEstimatedSizeBytes(pipelineOptions));
@@ -373,15 +391,17 @@ public class BigQueryIOStorageApiReadTest {
 
     TableReference tableReference =
         new TableReference().setDatasetId(DEFAULT_DATASET_ID).setTableId(DEFAULT_TABLE_ID);
-    BoundedSource<Row> source = BigQueryStorageTableSource.create(
-        ValueProvider.StaticValueProvider.of(tableReference),
-        SchemaAndRowProto::getRow,
-        ProtoCoder.of(Row.class),
-        fakeBigQueryServices,
-        null);
+    BoundedSource<Row> source =
+        BigQueryStorageTableSource.create(
+            ValueProvider.StaticValueProvider.of(tableReference),
+            SchemaAndRowProto::getRow,
+            ProtoCoder.of(Row.class),
+            fakeBigQueryServices,
+            null);
 
-    BigQueryOptions options = PipelineOptionsFactory.fromArgs("--project=" + DEFAULT_PROJECT_ID)
-        .as(BigQueryOptions.class);
+    BigQueryOptions options =
+        PipelineOptionsFactory.fromArgs("--project=" + DEFAULT_PROJECT_ID)
+            .as(BigQueryOptions.class);
     assertEquals(100, source.getEstimatedSizeBytes(options));
   }
 
@@ -407,17 +427,18 @@ public class BigQueryIOStorageApiReadTest {
     runTestTableSourceInitialSplit(0L, 10);
   }
 
-  private void runTestTableSourceInitialSplit(
-      long desiredBundleSizeBytes, int expectedStreamCount) throws Exception {
-    Table table = new Table().setTableReference(defaultTableReference)
-        .setNumBytes(TABLE_SIZE_BYTES);
+  private void runTestTableSourceInitialSplit(long desiredBundleSizeBytes, int expectedStreamCount)
+      throws Exception {
+    Table table =
+        new Table().setTableReference(defaultTableReference).setNumBytes(TABLE_SIZE_BYTES);
     fakeDatasetService.createDataset(DEFAULT_PROJECT_ID, DEFAULT_DATASET_ID, "", "", null);
     fakeDatasetService.createTable(table);
 
-    CreateReadSessionRequest createSessionRequest = CreateReadSessionRequest.newBuilder()
-        .setTableReference(defaultTableReferenceProto)
-        .setRequestedStreams(expectedStreamCount)
-        .build();
+    CreateReadSessionRequest createSessionRequest =
+        CreateReadSessionRequest.newBuilder()
+            .setTableReference(defaultTableReferenceProto)
+            .setRequestedStreams(expectedStreamCount)
+            .build();
 
     ReadSession.Builder sessionBuilder = ReadSession.newBuilder().setName("session");
     for (int i = 0; i < 50; i++) {
@@ -426,12 +447,13 @@ public class BigQueryIOStorageApiReadTest {
 
     fakeTableReadService.setCreateSessionResult(createSessionRequest, sessionBuilder.build());
 
-    BoundedSource<Row> source = BigQueryStorageTableSource.create(
-        ValueProvider.StaticValueProvider.of(defaultTableReference),
-        SchemaAndRowProto::getRow,
-        ProtoCoder.of(Row.class),
-        fakeBigQueryServices,
-        null);
+    BoundedSource<Row> source =
+        BigQueryStorageTableSource.create(
+            ValueProvider.StaticValueProvider.of(defaultTableReference),
+            SchemaAndRowProto::getRow,
+            ProtoCoder.of(Row.class),
+            fakeBigQueryServices,
+            null);
 
     List<? extends BoundedSource<Row>> sources = source.split(desiredBundleSizeBytes, options);
     assertEquals(50, sources.size());
@@ -441,34 +463,35 @@ public class BigQueryIOStorageApiReadTest {
 
   @Test
   public void testTableSourceInitialSplitWithDefaultProject() throws Exception {
-    Table table = new Table().setTableReference(defaultTableReference)
-        .setNumBytes(TABLE_SIZE_BYTES);
+    Table table =
+        new Table().setTableReference(defaultTableReference).setNumBytes(TABLE_SIZE_BYTES);
     fakeDatasetService.createDataset(DEFAULT_PROJECT_ID, DEFAULT_DATASET_ID, "", "", null);
     fakeDatasetService.createTable(table);
 
-    CreateReadSessionRequest createReadSessionRequest = CreateReadSessionRequest.newBuilder()
-        .setTableReference(defaultTableReferenceProto)
-        .setRequestedStreams(1024)
-        .build();
+    CreateReadSessionRequest createReadSessionRequest =
+        CreateReadSessionRequest.newBuilder()
+            .setTableReference(defaultTableReferenceProto)
+            .setRequestedStreams(1024)
+            .build();
 
-    ReadSession readSession = ReadSession.newBuilder()
-        .setName("session")
-        .addStreams(Stream.newBuilder())
-        .build();
+    ReadSession readSession =
+        ReadSession.newBuilder().setName("session").addStreams(Stream.newBuilder()).build();
 
     fakeTableReadService.setCreateSessionResult(createReadSessionRequest, readSession);
 
     TableReference tableReference =
         new TableReference().setDatasetId(DEFAULT_DATASET_ID).setTableId(DEFAULT_TABLE_ID);
-    BoundedSource<Row> source = BigQueryStorageTableSource.create(
-        ValueProvider.StaticValueProvider.of(tableReference),
-        SchemaAndRowProto::getRow,
-        ProtoCoder.of(Row.class),
-        fakeBigQueryServices,
-        null);
+    BoundedSource<Row> source =
+        BigQueryStorageTableSource.create(
+            ValueProvider.StaticValueProvider.of(tableReference),
+            SchemaAndRowProto::getRow,
+            ProtoCoder.of(Row.class),
+            fakeBigQueryServices,
+            null);
 
-    BigQueryOptions options = PipelineOptionsFactory.fromArgs("--project=" + DEFAULT_PROJECT_ID)
-        .as(BigQueryOptions.class);
+    BigQueryOptions options =
+        PipelineOptionsFactory.fromArgs("--project=" + DEFAULT_PROJECT_ID)
+            .as(BigQueryOptions.class);
     List<? extends BoundedSource<Row>> sources = source.split(1024, options);
     assertEquals(1, sources.size());
     assertEquals(TABLE_SIZE_BYTES, sources.get(0).getEstimatedSizeBytes(options));
@@ -480,21 +503,23 @@ public class BigQueryIOStorageApiReadTest {
     fakeDatasetService.createDataset(DEFAULT_PROJECT_ID, DEFAULT_DATASET_ID, "", "", null);
     fakeDatasetService.createTable(table);
 
-    CreateReadSessionRequest createReadSessionRequest = CreateReadSessionRequest.newBuilder()
-        .setTableReference(defaultTableReferenceProto)
-        .setRequestedStreams(10)
-        .build();
+    CreateReadSessionRequest createReadSessionRequest =
+        CreateReadSessionRequest.newBuilder()
+            .setTableReference(defaultTableReferenceProto)
+            .setRequestedStreams(10)
+            .build();
 
     // Return a session with no read locations.
     ReadSession readSession = ReadSession.newBuilder().setName("session").build();
     fakeTableReadService.setCreateSessionResult(createReadSessionRequest, readSession);
 
-    BoundedSource<Row> source = BigQueryStorageTableSource.create(
-        ValueProvider.StaticValueProvider.of(defaultTableReference),
-        SchemaAndRowProto::getRow,
-        ProtoCoder.of(Row.class),
-        fakeBigQueryServices,
-        null);
+    BoundedSource<Row> source =
+        BigQueryStorageTableSource.create(
+            ValueProvider.StaticValueProvider.of(defaultTableReference),
+            SchemaAndRowProto::getRow,
+            ProtoCoder.of(Row.class),
+            fakeBigQueryServices,
+            null);
 
     List<? extends BoundedSource<Row>> sources = source.split(1024, options);
     assertEquals(0, sources.size());
@@ -511,23 +536,25 @@ public class BigQueryIOStorageApiReadTest {
           }
         };
 
-    assertEquals(ProtoCoder.of(Row.class),
+    assertEquals(
+        ProtoCoder.of(Row.class),
         BigQueryIO.readViaRowProto(parseFn).inferCoder(CoderRegistry.createDefault()));
   }
 
   private final CreateReadSessionRequest defaultCreateReadSessionRequest =
       CreateReadSessionRequest.newBuilder()
-          .setTableReference(TableReferenceProto.TableReference.newBuilder()
-              .setProjectId(DEFAULT_PROJECT_ID)
-              .setDatasetId(DEFAULT_DATASET_ID)
-              .setTableId(DEFAULT_TABLE_ID))
+          .setTableReference(
+              TableReferenceProto.TableReference.newBuilder()
+                  .setProjectId(DEFAULT_PROJECT_ID)
+                  .setDatasetId(DEFAULT_DATASET_ID)
+                  .setTableId(DEFAULT_TABLE_ID))
           .setRequestedStreams(10)
           .build();
 
   private final ReadRowsRequest defaultReadRowsRequest =
       ReadRowsRequest.newBuilder()
-          .setReadPosition(StreamPosition.newBuilder().setStream(
-              Stream.newBuilder().setName("stream name")))
+          .setReadPosition(
+              StreamPosition.newBuilder().setStream(Stream.newBuilder().setName("stream name")))
           .build();
 
   @Test
@@ -538,75 +565,79 @@ public class BigQueryIOStorageApiReadTest {
   @Test
   public void testReadFromTableSourceWithFilter() throws Exception {
 
-    ReadSessionOptions readSessionOptions = ReadSessionOptions.builder()
-        .setSqlFilter("SQL filter")
-        .build();
+    ReadSessionOptions readSessionOptions =
+        ReadSessionOptions.builder().setSqlFilter("SQL filter").build();
 
     CreateReadSessionRequest createReadSessionRequest =
         CreateReadSessionRequest.newBuilder(defaultCreateReadSessionRequest)
             .setReadOptions(TableReadOptions.newBuilder().setFilter("SQL filter"))
             .build();
 
-    runTestReadFromTableSource(readSessionOptions, createReadSessionRequest,
-        defaultReadRowsRequest);
+    runTestReadFromTableSource(
+        readSessionOptions, createReadSessionRequest, defaultReadRowsRequest);
   }
 
   @Test
   public void testReadFromTableSourceWithSelectedFields() throws Exception {
 
-    ReadSessionOptions readSessionOptions = ReadSessionOptions.builder()
-        .setSelectedFields(Lists.newArrayList("field 1", "field 2"))
-        .build();
+    ReadSessionOptions readSessionOptions =
+        ReadSessionOptions.builder()
+            .setSelectedFields(Lists.newArrayList("field 1", "field 2"))
+            .build();
 
     CreateReadSessionRequest createReadSessionRequest =
         CreateReadSessionRequest.newBuilder(defaultCreateReadSessionRequest)
-            .setReadOptions(TableReadOptions.newBuilder()
-                .addSelectedFields("field 1")
-                .addSelectedFields("field 2"))
+            .setReadOptions(
+                TableReadOptions.newBuilder()
+                    .addSelectedFields("field 1")
+                    .addSelectedFields("field 2"))
             .build();
 
-    runTestReadFromTableSource(readSessionOptions, createReadSessionRequest,
-        defaultReadRowsRequest);
+    runTestReadFromTableSource(
+        readSessionOptions, createReadSessionRequest, defaultReadRowsRequest);
   }
 
   @Test
   public void testReadFromTableSourceWithFilterAndSelectedFields() throws Exception {
 
-    ReadSessionOptions readSessionOptions = ReadSessionOptions.builder()
-        .setSqlFilter("SQL filter")
-        .setSelectedFields(Lists.newArrayList("field 1", "field 2"))
-        .build();
+    ReadSessionOptions readSessionOptions =
+        ReadSessionOptions.builder()
+            .setSqlFilter("SQL filter")
+            .setSelectedFields(Lists.newArrayList("field 1", "field 2"))
+            .build();
 
     CreateReadSessionRequest createReadSessionRequest =
         CreateReadSessionRequest.newBuilder(defaultCreateReadSessionRequest)
-            .setReadOptions(TableReadOptions.newBuilder()
-                .setFilter("SQL filter")
-                .addSelectedFields("field 1")
-                .addSelectedFields("field 2"))
+            .setReadOptions(
+                TableReadOptions.newBuilder()
+                    .setFilter("SQL filter")
+                    .addSelectedFields("field 1")
+                    .addSelectedFields("field 2"))
             .build();
 
-    runTestReadFromTableSource(readSessionOptions, createReadSessionRequest,
-        defaultReadRowsRequest);
+    runTestReadFromTableSource(
+        readSessionOptions, createReadSessionRequest, defaultReadRowsRequest);
   }
 
   @Test
   public void testReadFromTableSourceWithAllReadOptions() throws Exception {
 
-    ReadSessionOptions readSessionOptions = ReadSessionOptions.builder()
-        .setSqlFilter("SQL filter")
-        .setSelectedFields(Lists.newArrayList("field 1", "field 2"))
-        .build();
+    ReadSessionOptions readSessionOptions =
+        ReadSessionOptions.builder()
+            .setSqlFilter("SQL filter")
+            .setSelectedFields(Lists.newArrayList("field 1", "field 2"))
+            .build();
 
     CreateReadSessionRequest createReadSessionRequest =
         CreateReadSessionRequest.newBuilder(defaultCreateReadSessionRequest)
-            .setReadOptions(TableReadOptions.newBuilder()
-                .setFilter("SQL filter")
-                .addSelectedFields("field 1")
-                .addSelectedFields("field 2"))
+            .setReadOptions(
+                TableReadOptions.newBuilder()
+                    .setFilter("SQL filter")
+                    .addSelectedFields("field 1")
+                    .addSelectedFields("field 2"))
             .build();
 
-    ReadRowsRequest readRowsRequest = ReadRowsRequest.newBuilder(defaultReadRowsRequest)
-        .build();
+    ReadRowsRequest readRowsRequest = ReadRowsRequest.newBuilder(defaultReadRowsRequest).build();
 
     runTestReadFromTableSource(readSessionOptions, createReadSessionRequest, readRowsRequest);
   }
@@ -617,28 +648,39 @@ public class BigQueryIOStorageApiReadTest {
       ReadRowsRequest readRowsRequest)
       throws Exception {
 
-    ReadSession readSession = ReadSession.newBuilder()
-        .setName("session name")
-        .setProjectedSchema(defaultStructType)
-        .addStreams(Stream.newBuilder().setName("stream name"))
-        .build();
+    ReadSession readSession =
+        ReadSession.newBuilder()
+            .setName("session name")
+            .setProjectedSchema(defaultStructType)
+            .addStreams(Stream.newBuilder().setName("stream name"))
+            .build();
 
     fakeTableReadService.setCreateSessionResult(createReadSessionRequest, readSession);
 
-    List<ReadRowsResponse> readRowsResponses = Lists.newArrayList(
-        ReadRowsResponse.newBuilder()
-            .addRows(Row.newBuilder().setValue(StructValue.newBuilder()
-                .addFields(Value.newBuilder().setStringValue("a"))
-                .addFields(Value.newBuilder().setInt64Value(1L))))
-            .addRows(Row.newBuilder().setValue(StructValue.newBuilder()
-                .addFields(Value.newBuilder().setStringValue("b"))
-                .addFields(Value.newBuilder().setInt64Value(2L))))
-            .build(),
-        ReadRowsResponse.newBuilder()
-            .addRows(Row.newBuilder().setValue(StructValue.newBuilder()
-                .addFields(Value.newBuilder().setStringValue("c"))
-                .addFields(Value.newBuilder().setInt64Value(3L))))
-            .build());
+    List<ReadRowsResponse> readRowsResponses =
+        Lists.newArrayList(
+            ReadRowsResponse.newBuilder()
+                .addRows(
+                    Row.newBuilder()
+                        .setValue(
+                            StructValue.newBuilder()
+                                .addFields(Value.newBuilder().setStringValue("a"))
+                                .addFields(Value.newBuilder().setInt64Value(1L))))
+                .addRows(
+                    Row.newBuilder()
+                        .setValue(
+                            StructValue.newBuilder()
+                                .addFields(Value.newBuilder().setStringValue("b"))
+                                .addFields(Value.newBuilder().setInt64Value(2L))))
+                .build(),
+            ReadRowsResponse.newBuilder()
+                .addRows(
+                    Row.newBuilder()
+                        .setValue(
+                            StructValue.newBuilder()
+                                .addFields(Value.newBuilder().setStringValue("c"))
+                                .addFields(Value.newBuilder().setInt64Value(3L))))
+                .build());
 
     fakeTableReadService.setReadRowsResponses(readRowsRequest, readRowsResponses);
 
@@ -650,16 +692,17 @@ public class BigQueryIOStorageApiReadTest {
     options.setProject(DEFAULT_PROJECT_ID);
     Pipeline pipeline = TestPipeline.create(options);
 
-    PCollection<KV<String, Long>> output = pipeline.apply(
-        BigQueryIO.readViaRowProto(
-            (input) -> KV.of((String) input.get("name"), (Long) input.get("number")))
-            .withCoder(KvCoder.of(StringUtf8Coder.of(), VarLongCoder.of()))
-            .from(DEFAULT_TABLE_REFERENCE_STRING)
-            .withTestServices(fakeBigQueryServices)
-            .withReadSessionOptions(readSessionOptions));
+    PCollection<KV<String, Long>> output =
+        pipeline.apply(
+            BigQueryIO.readViaRowProto(
+                    (input) -> KV.of((String) input.get("name"), (Long) input.get("number")))
+                .withCoder(KvCoder.of(StringUtf8Coder.of(), VarLongCoder.of()))
+                .from(DEFAULT_TABLE_REFERENCE_STRING)
+                .withTestServices(fakeBigQueryServices)
+                .withReadSessionOptions(readSessionOptions));
 
-    PAssert.that(output).containsInAnyOrder(
-        ImmutableList.of(KV.of("a", 1L), KV.of("b", 2L), KV.of("c", 3L)));
+    PAssert.that(output)
+        .containsInAnyOrder(ImmutableList.of(KV.of("a", 1L), KV.of("b", 2L), KV.of("c", 3L)));
 
     pipeline.run();
   }
@@ -680,8 +723,8 @@ public class BigQueryIOStorageApiReadTest {
             .setReadOptions(TableReadOptions.newBuilder().setFilter("SQL filter"))
             .build();
 
-    runTestReadFromQuerySource(readSessionOptions, createReadSessionRequest,
-        defaultReadRowsRequest);
+    runTestReadFromQuerySource(
+        readSessionOptions, createReadSessionRequest, defaultReadRowsRequest);
   }
 
   @Test
@@ -689,60 +732,62 @@ public class BigQueryIOStorageApiReadTest {
 
     ReadSessionOptions readSessionOptions =
         ReadSessionOptions.builder()
-            .setSelectedFields(
-                Lists.newArrayList("field 1", "field 2"))
+            .setSelectedFields(Lists.newArrayList("field 1", "field 2"))
             .build();
 
     CreateReadSessionRequest createReadSessionRequest =
         CreateReadSessionRequest.newBuilder(defaultCreateReadSessionRequest)
-            .setReadOptions(TableReadOptions.newBuilder()
-                .addSelectedFields("field 1")
-                .addSelectedFields("field 2"))
+            .setReadOptions(
+                TableReadOptions.newBuilder()
+                    .addSelectedFields("field 1")
+                    .addSelectedFields("field 2"))
             .build();
 
-    runTestReadFromQuerySource(readSessionOptions, createReadSessionRequest,
-        defaultReadRowsRequest);
+    runTestReadFromQuerySource(
+        readSessionOptions, createReadSessionRequest, defaultReadRowsRequest);
   }
 
   @Test
   public void testReadFromQuerySourceWithFilterAndSelectedFields() throws Exception {
 
-    ReadSessionOptions readSessionOptions = ReadSessionOptions.builder()
-        .setSqlFilter("SQL filter")
-        .setSelectedFields(Lists.newArrayList("field 1", "field 2"))
-        .build();
+    ReadSessionOptions readSessionOptions =
+        ReadSessionOptions.builder()
+            .setSqlFilter("SQL filter")
+            .setSelectedFields(Lists.newArrayList("field 1", "field 2"))
+            .build();
 
     CreateReadSessionRequest createReadSessionRequest =
         CreateReadSessionRequest.newBuilder(defaultCreateReadSessionRequest)
-            .setReadOptions(TableReadOptions.newBuilder()
-                .setFilter("SQL filter")
-                .addSelectedFields("field 1")
-                .addSelectedFields("field 2"))
+            .setReadOptions(
+                TableReadOptions.newBuilder()
+                    .setFilter("SQL filter")
+                    .addSelectedFields("field 1")
+                    .addSelectedFields("field 2"))
             .build();
 
-    runTestReadFromQuerySource(readSessionOptions, createReadSessionRequest,
-        defaultReadRowsRequest);
+    runTestReadFromQuerySource(
+        readSessionOptions, createReadSessionRequest, defaultReadRowsRequest);
   }
 
   @Test
   public void testReadFromQuerySourceWithAllReadOptions() throws Exception {
 
-    ReadSessionOptions readSessionOptions = ReadSessionOptions.builder()
-        .setSqlFilter("SQL filter")
-        .setSelectedFields(Lists.newArrayList("field 1", "field 2"))
-        .build();
+    ReadSessionOptions readSessionOptions =
+        ReadSessionOptions.builder()
+            .setSqlFilter("SQL filter")
+            .setSelectedFields(Lists.newArrayList("field 1", "field 2"))
+            .build();
 
     CreateReadSessionRequest createReadSessionRequest =
         CreateReadSessionRequest.newBuilder(defaultCreateReadSessionRequest)
-            .setReadOptions(TableReadOptions.newBuilder()
-                .setFilter("SQL filter")
-                .addSelectedFields("field 1")
-                .addSelectedFields("field 2"))
+            .setReadOptions(
+                TableReadOptions.newBuilder()
+                    .setFilter("SQL filter")
+                    .addSelectedFields("field 1")
+                    .addSelectedFields("field 2"))
             .build();
 
-    ReadRowsRequest readRowsRequest =
-        ReadRowsRequest.newBuilder(defaultReadRowsRequest)
-            .build();
+    ReadRowsRequest readRowsRequest = ReadRowsRequest.newBuilder(defaultReadRowsRequest).build();
 
     runTestReadFromQuerySource(readSessionOptions, createReadSessionRequest, readRowsRequest);
   }
@@ -759,8 +804,9 @@ public class BigQueryIOStorageApiReadTest {
 
     String stepUuid = "testStepUuid";
 
-    TableReference tempTableReference = createTempTableReference(
-        DEFAULT_PROJECT_ID, createJobIdToken(bqOptions.getJobName(), stepUuid));
+    TableReference tempTableReference =
+        createTempTableReference(
+            DEFAULT_PROJECT_ID, createJobIdToken(bqOptions.getJobName(), stepUuid));
 
     fakeDatasetService.createDataset(
         tempTableReference.getProjectId(),
@@ -769,72 +815,89 @@ public class BigQueryIOStorageApiReadTest {
         "description",
         null);
 
-    fakeDatasetService.createTable(new Table()
-        .setTableReference(tempTableReference)
-        .setSchema(new TableSchema()
-            .setFields(
-                ImmutableList.of(
-                    new TableFieldSchema().setName("name").setType("STRING"),
-                    new TableFieldSchema().setName("number").setType("INTEGER")))));
+    fakeDatasetService.createTable(
+        new Table()
+            .setTableReference(tempTableReference)
+            .setSchema(
+                new TableSchema()
+                    .setFields(
+                        ImmutableList.of(
+                            new TableFieldSchema().setName("name").setType("STRING"),
+                            new TableFieldSchema().setName("number").setType("INTEGER")))));
 
-    List<TableRow> expected = ImmutableList.of(
-        new TableRow().set("name", "a").set("number", 1L),
-        new TableRow().set("name", "b").set("number", 2L),
-        new TableRow().set("name", "c").set("number", 3L));
+    List<TableRow> expected =
+        ImmutableList.of(
+            new TableRow().set("name", "a").set("number", 1L),
+            new TableRow().set("name", "b").set("number", 2L),
+            new TableRow().set("name", "c").set("number", 3L));
 
     String encodedQuery = FakeBigQueryServices.encodeQuery(expected);
 
     fakeJobService.expectDryRunQuery(
         DEFAULT_PROJECT_ID,
         encodedQuery,
-        new JobStatistics().setQuery(
-            new JobStatistics2()
-                .setTotalBytesProcessed(TABLE_SIZE_BYTES)
-                .setReferencedTables(ImmutableList.of(tempTableReference))));
+        new JobStatistics()
+            .setQuery(
+                new JobStatistics2()
+                    .setTotalBytesProcessed(TABLE_SIZE_BYTES)
+                    .setReferencedTables(ImmutableList.of(tempTableReference))));
 
     CreateReadSessionRequest expectedCreateReadSessionRequest =
         CreateReadSessionRequest.newBuilder(createReadSessionRequest)
-            .setTableReference(TableReferenceProto.TableReference.newBuilder()
-                .setProjectId(tempTableReference.getProjectId()))
+            .setTableReference(
+                TableReferenceProto.TableReference.newBuilder()
+                    .setProjectId(tempTableReference.getProjectId()))
             .build();
 
-    ReadSession readSession = ReadSession.newBuilder()
-        .setName("session name")
-        .setProjectedSchema(defaultStructType)
-        .addStreams(Stream.newBuilder().setName("stream name"))
-        .build();
+    ReadSession readSession =
+        ReadSession.newBuilder()
+            .setName("session name")
+            .setProjectedSchema(defaultStructType)
+            .addStreams(Stream.newBuilder().setName("stream name"))
+            .build();
 
     fakeTableReadService.setCreateSessionResult(expectedCreateReadSessionRequest, readSession);
 
-    List<ReadRowsResponse> readRowsResponses = Lists.newArrayList(
-        ReadRowsResponse.newBuilder()
-            .addRows(Row.newBuilder().setValue(StructValue.newBuilder()
-                .addFields(Value.newBuilder().setStringValue("a"))
-                .addFields(Value.newBuilder().setInt64Value(1L))))
-            .addRows(Row.newBuilder().setValue(StructValue.newBuilder()
-                .addFields(Value.newBuilder().setStringValue("b"))
-                .addFields(Value.newBuilder().setInt64Value(2L))))
-            .build(),
-        ReadRowsResponse.newBuilder()
-            .addRows(Row.newBuilder().setValue(StructValue.newBuilder()
-                .addFields(Value.newBuilder().setStringValue("c"))
-                .addFields(Value.newBuilder().setInt64Value(3L))))
-            .build());
+    List<ReadRowsResponse> readRowsResponses =
+        Lists.newArrayList(
+            ReadRowsResponse.newBuilder()
+                .addRows(
+                    Row.newBuilder()
+                        .setValue(
+                            StructValue.newBuilder()
+                                .addFields(Value.newBuilder().setStringValue("a"))
+                                .addFields(Value.newBuilder().setInt64Value(1L))))
+                .addRows(
+                    Row.newBuilder()
+                        .setValue(
+                            StructValue.newBuilder()
+                                .addFields(Value.newBuilder().setStringValue("b"))
+                                .addFields(Value.newBuilder().setInt64Value(2L))))
+                .build(),
+            ReadRowsResponse.newBuilder()
+                .addRows(
+                    Row.newBuilder()
+                        .setValue(
+                            StructValue.newBuilder()
+                                .addFields(Value.newBuilder().setStringValue("c"))
+                                .addFields(Value.newBuilder().setInt64Value(3L))))
+                .build());
 
     fakeTableReadService.setReadRowsResponses(readRowsRequest, readRowsResponses);
 
     Pipeline pipeline = TestPipeline.create(bqOptions);
 
-    PCollection<KV<String, Long>> output = pipeline.apply(
-        BigQueryIO.readViaRowProto(
-            (input) -> KV.of((String) input.get("name"), (Long) input.get("number")))
-            .withCoder(KvCoder.of(StringUtf8Coder.of(), VarLongCoder.of()))
-            .fromQuery(encodedQuery)
-            .withTestServices(fakeBigQueryServices)
-            .withReadSessionOptions(readSessionOptions));
+    PCollection<KV<String, Long>> output =
+        pipeline.apply(
+            BigQueryIO.readViaRowProto(
+                    (input) -> KV.of((String) input.get("name"), (Long) input.get("number")))
+                .withCoder(KvCoder.of(StringUtf8Coder.of(), VarLongCoder.of()))
+                .fromQuery(encodedQuery)
+                .withTestServices(fakeBigQueryServices)
+                .withReadSessionOptions(readSessionOptions));
 
-    PAssert.that(output).containsInAnyOrder(
-        ImmutableList.of(KV.of("a", 1L), KV.of("b", 2L), KV.of("c", 3L)));
+    PAssert.that(output)
+        .containsInAnyOrder(ImmutableList.of(KV.of("a", 1L), KV.of("b", 2L), KV.of("c", 3L)));
 
     pipeline.run();
   }

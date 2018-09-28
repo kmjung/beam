@@ -84,9 +84,7 @@ import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 import org.junit.runners.model.Statement;
 
-/**
- * Tests for {@link BigQueryIO#read}.
- */
+/** Tests for {@link BigQueryIO#read}. */
 @RunWith(JUnit4.class)
 public class BigQueryIOReadTest implements Serializable {
 
@@ -120,8 +118,7 @@ public class BigQueryIOReadTest implements Serializable {
         }
       };
 
-  @Rule
-  public transient ExpectedException thrown = ExpectedException.none();
+  @Rule public transient ExpectedException thrown = ExpectedException.none();
 
   private FakeDatasetService fakeDatasetService = new FakeDatasetService();
   private FakeJobService fakeJobService = new FakeJobService();
@@ -310,9 +307,10 @@ public class BigQueryIOReadTest implements Serializable {
     thrown.expectMessage(
         "Invalid BigQueryIO.Read: Specifies read session options, which only apply when using"
             + " TypedRead.Method.READ");
-    p.apply(BigQueryIO.read(SerializableFunctions.identity())
-        .from("foo.com:project:somedataset.sometable")
-        .withReadSessionOptions(ReadSessionOptions.builder().build()));
+    p.apply(
+        BigQueryIO.read(SerializableFunctions.identity())
+            .from("foo.com:project:somedataset.sometable")
+            .withReadSessionOptions(ReadSessionOptions.builder().build()));
     p.run();
   }
 

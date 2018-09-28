@@ -43,8 +43,7 @@ class PassThroughThenCleanup<T> extends PTransform<PCollection<T>, PCollection<T
   private CleanupOperation cleanupOperation;
   private PCollectionView<String> cleanupInput;
 
-  PassThroughThenCleanup(
-      CleanupOperation cleanupOperation, PCollectionView<String> cleanupInput) {
+  PassThroughThenCleanup(CleanupOperation cleanupOperation, PCollectionView<String> cleanupInput) {
     this.cleanupOperation = cleanupOperation;
     this.cleanupInput = cleanupInput;
   }

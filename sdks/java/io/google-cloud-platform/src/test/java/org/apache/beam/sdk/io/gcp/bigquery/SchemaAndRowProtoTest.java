@@ -14,34 +14,55 @@ import com.google.cloud.bigquery.v3.RowOuterClass.TypeKind;
 import com.google.cloud.bigquery.v3.RowOuterClass.Value;
 import org.junit.Test;
 
-/**
- * Tests for {@link SchemaAndRowProto}.
- */
+/** Tests for {@link SchemaAndRowProto}. */
 public class SchemaAndRowProtoTest {
 
-  private StructType defaultSchema = StructType.newBuilder()
-      .addFields(StructField.newBuilder().setFieldName("simpleField")
-          .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_INT64)))
-      .addFields(StructField.newBuilder().setFieldName("arrayField")
-          .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_ARRAY)
-              .setArrayType(Type.newBuilder().setTypeKind(TypeKind.TYPE_INT64))))
-      .addFields(StructField.newBuilder().setFieldName("structField")
-          .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_STRUCT)
-              .setStructType(StructType.newBuilder()
-                  .addFields(StructField.newBuilder().setFieldName("nestedField")
-                      .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_INT64))))))
-      .build();
+  private StructType defaultSchema =
+      StructType.newBuilder()
+          .addFields(
+              StructField.newBuilder()
+                  .setFieldName("simpleField")
+                  .setFieldType(Type.newBuilder().setTypeKind(TypeKind.TYPE_INT64)))
+          .addFields(
+              StructField.newBuilder()
+                  .setFieldName("arrayField")
+                  .setFieldType(
+                      Type.newBuilder()
+                          .setTypeKind(TypeKind.TYPE_ARRAY)
+                          .setArrayType(Type.newBuilder().setTypeKind(TypeKind.TYPE_INT64))))
+          .addFields(
+              StructField.newBuilder()
+                  .setFieldName("structField")
+                  .setFieldType(
+                      Type.newBuilder()
+                          .setTypeKind(TypeKind.TYPE_STRUCT)
+                          .setStructType(
+                              StructType.newBuilder()
+                                  .addFields(
+                                      StructField.newBuilder()
+                                          .setFieldName("nestedField")
+                                          .setFieldType(
+                                              Type.newBuilder()
+                                                  .setTypeKind(TypeKind.TYPE_INT64))))))
+          .build();
 
-  private Row defaultRow = Row.newBuilder().setValue(StructValue.newBuilder()
-      .addFields(Value.newBuilder().setInt64Value(5L))
-      .addFields(Value.newBuilder().setArrayValue(
-          ArrayValue.newBuilder()
-              .addElements(Value.newBuilder().setInt64Value(6L))
-              .addElements(Value.newBuilder().setInt64Value(7L))))
-      .addFields(Value.newBuilder().setStructValue(
-          StructValue.newBuilder()
-              .addFields(Value.newBuilder().setInt64Value(8L)))))
-      .build();
+  private Row defaultRow =
+      Row.newBuilder()
+          .setValue(
+              StructValue.newBuilder()
+                  .addFields(Value.newBuilder().setInt64Value(5L))
+                  .addFields(
+                      Value.newBuilder()
+                          .setArrayValue(
+                              ArrayValue.newBuilder()
+                                  .addElements(Value.newBuilder().setInt64Value(6L))
+                                  .addElements(Value.newBuilder().setInt64Value(7L))))
+                  .addFields(
+                      Value.newBuilder()
+                          .setStructValue(
+                              StructValue.newBuilder()
+                                  .addFields(Value.newBuilder().setInt64Value(8L)))))
+          .build();
 
   @Test
   public void testGetSimpleField() {
@@ -52,10 +73,11 @@ public class SchemaAndRowProtoTest {
   @Test
   public void testGetArrayField() {
 
-    ArrayValue expected = ArrayValue.newBuilder()
-        .addElements(Value.newBuilder().setInt64Value(6L))
-        .addElements(Value.newBuilder().setInt64Value(7L))
-        .build();
+    ArrayValue expected =
+        ArrayValue.newBuilder()
+            .addElements(Value.newBuilder().setInt64Value(6L))
+            .addElements(Value.newBuilder().setInt64Value(7L))
+            .build();
 
     SchemaAndRowProto schemaAndRowProto = new SchemaAndRowProto(defaultSchema, defaultRow);
     assertEquals(expected, schemaAndRowProto.get("arrayField"));
@@ -64,9 +86,8 @@ public class SchemaAndRowProtoTest {
   @Test
   public void testGetStructField() {
 
-    StructValue expected = StructValue.newBuilder()
-        .addFields(Value.newBuilder().setInt64Value(8L))
-        .build();
+    StructValue expected =
+        StructValue.newBuilder().addFields(Value.newBuilder().setInt64Value(8L)).build();
 
     SchemaAndRowProto schemaAndRowProto = new SchemaAndRowProto(defaultSchema, defaultRow);
     assertEquals(expected, schemaAndRowProto.get("structField"));
@@ -105,11 +126,14 @@ public class SchemaAndRowProtoTest {
   @Test
   public void testNullFields() {
 
-    Row nullRow = Row.newBuilder().setValue(StructValue.newBuilder()
-        .addFields(Value.newBuilder().setNullValue(NullValue.NULL_VALUE))
-        .addFields(Value.newBuilder().setNullValue(NullValue.NULL_VALUE))
-        .addFields(Value.newBuilder().setNullValue(NullValue.NULL_VALUE)))
-        .build();
+    Row nullRow =
+        Row.newBuilder()
+            .setValue(
+                StructValue.newBuilder()
+                    .addFields(Value.newBuilder().setNullValue(NullValue.NULL_VALUE))
+                    .addFields(Value.newBuilder().setNullValue(NullValue.NULL_VALUE))
+                    .addFields(Value.newBuilder().setNullValue(NullValue.NULL_VALUE)))
+            .build();
 
     SchemaAndRowProto schemaAndRowProto = new SchemaAndRowProto(defaultSchema, nullRow);
     assertNull(schemaAndRowProto.get("simpleField"));

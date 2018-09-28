@@ -40,9 +40,7 @@ import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- * A {@link BoundedSource} for reading BigQuery tables using the BigQuery Storage API.
- */
+/** A {@link BoundedSource} for reading BigQuery tables using the BigQuery Storage API. */
 class BigQueryStorageTableSource<T> extends BoundedSource<T> {
 
   private static final Logger LOG = LoggerFactory.getLogger(BigQueryStorageTableSource.class);
@@ -62,8 +60,8 @@ class BigQueryStorageTableSource<T> extends BoundedSource<T> {
   private static final int MIN_SPLIT_COUNT = 10;
 
   /**
-   * This method creates a new {@link BigQueryStorageTableSource} with no initial read session
-   * or read location.
+   * This method creates a new {@link BigQueryStorageTableSource} with no initial read session or
+   * read location.
    */
   public static <T> BigQueryStorageTableSource<T> create(
       ValueProvider<TableReference> tableRefProvider,
@@ -73,8 +71,7 @@ class BigQueryStorageTableSource<T> extends BoundedSource<T> {
       ReadSessionOptions readSessionOptions) {
     return new BigQueryStorageTableSource<>(
         NestedValueProvider.of(
-            checkNotNull(tableRefProvider, "tableRefProvider"),
-            new TableRefToJson()),
+            checkNotNull(tableRefProvider, "tableRefProvider"), new TableRefToJson()),
         parseFn,
         coder,
         bqServices,
@@ -111,20 +108,22 @@ class BigQueryStorageTableSource<T> extends BoundedSource<T> {
     long tableSizeBytes = getEstimatedSizeBytes(options);
     int readerCount = 0;
     if (desiredBundleSizeBytes > 0) {
-      readerCount = (tableSizeBytes / desiredBundleSizeBytes) > MAX_SPLIT_COUNT
-          ? MAX_SPLIT_COUNT
-          : (int) (tableSizeBytes / desiredBundleSizeBytes);
+      readerCount =
+          (tableSizeBytes / desiredBundleSizeBytes) > MAX_SPLIT_COUNT
+              ? MAX_SPLIT_COUNT
+              : (int) (tableSizeBytes / desiredBundleSizeBytes);
     }
 
     if (readerCount < MIN_SPLIT_COUNT) {
       readerCount = MIN_SPLIT_COUNT;
     }
 
-    Storage.ReadSession readSession = BigQueryHelpers.createReadSession(
-        bqServices.getTableReadService(bqOptions),
-        tableReference,
-        readerCount,
-        readSessionOptions);
+    Storage.ReadSession readSession =
+        BigQueryHelpers.createReadSession(
+            bqServices.getTableReadService(bqOptions),
+            tableReference,
+            readerCount,
+            readSessionOptions);
 
     if (readSession.getStreamsCount() == 0) {
       return ImmutableList.of();
@@ -133,15 +132,14 @@ class BigQueryStorageTableSource<T> extends BoundedSource<T> {
     Long readSizeBytes = tableSizeBytes / readSession.getStreamsCount();
     List<BoundedSource<T>> sources = new ArrayList<>(readSession.getStreamsCount());
     for (Storage.Stream stream : readSession.getStreamsList()) {
-      sources.add(new BigQueryStorageStreamSource<>(
-          bqServices,
-          parseFn,
-          coder,
-          readSession,
-          Storage.StreamPosition.newBuilder()
-              .setStream(stream)
-              .build(),
-          readSizeBytes));
+      sources.add(
+          new BigQueryStorageStreamSource<>(
+              bqServices,
+              parseFn,
+              coder,
+              readSession,
+              Storage.StreamPosition.newBuilder().setStream(stream).build(),
+              readSizeBytes));
     }
 
     return ImmutableList.copyOf(sources);

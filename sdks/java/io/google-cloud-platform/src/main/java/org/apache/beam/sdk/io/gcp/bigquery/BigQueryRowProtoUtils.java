@@ -32,14 +32,18 @@ public class BigQueryRowProtoUtils {
     List<StructField> structFieldTypes = structType.getFieldsList();
     List<Value> structFieldValues = structValue.getFieldsList();
 
-    checkState(structFieldTypes.size() == structFieldValues.size(),
+    checkState(
+        structFieldTypes.size() == structFieldValues.size(),
         "Struct value %s had unexpected field count %d (schema had %d fields)",
-        structValue, structFieldValues.size(), structFieldTypes.size());
+        structValue,
+        structFieldValues.size(),
+        structFieldTypes.size());
 
     TableRow tableRow = new TableRow();
     for (int i = 0; i < structFieldTypes.size(); i++) {
-      Object fieldValue = getFieldValueAsTableRowType(
-          structFieldTypes.get(i).getFieldType(), structFieldValues.get(i));
+      Object fieldValue =
+          getFieldValueAsTableRowType(
+              structFieldTypes.get(i).getFieldType(), structFieldValues.get(i));
       if (fieldValue != null) {
         tableRow.set(structFieldTypes.get(i).getFieldName(), fieldValue);
       }

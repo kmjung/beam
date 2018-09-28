@@ -47,8 +47,10 @@ class BigQueryQueryHelper implements Serializable {
       BigQueryServices bqServices, BigQueryOptions bqOptions)
       throws InterruptedException, IOException {
     if (dryRunJobStats == null) {
-      dryRunJobStats = bqServices.getJobService(bqOptions)
-          .dryRunQuery(bqOptions.getProject(), createBaseQueryConfig());
+      dryRunJobStats =
+          bqServices
+              .getJobService(bqOptions)
+              .dryRunQuery(bqOptions.getProject(), createBaseQueryConfig());
     }
 
     return dryRunJobStats;
@@ -59,9 +61,7 @@ class BigQueryQueryHelper implements Serializable {
       throws IOException, InterruptedException {
     // 1. Find the location in which the query will be executed.
     List<TableReference> referencedTables =
-        dryRunQueryIfNeeded(bqServices, bqOptions)
-            .getQuery()
-            .getReferencedTables();
+        dryRunQueryIfNeeded(bqServices, bqOptions).getQuery().getReferencedTables();
 
     String location = null;
     DatasetService datasetService = bqServices.getDatasetService(bqOptions);
@@ -71,8 +71,9 @@ class BigQueryQueryHelper implements Serializable {
     }
 
     // 2. Create the temporary dataset in the appropriate location.
-    TableReference resultTable = createTempTableReference(
-        bqOptions.getProject(), createJobIdToken(bqOptions.getJobName(), stepUuid));
+    TableReference resultTable =
+        createTempTableReference(
+            bqOptions.getProject(), createJobIdToken(bqOptions.getJobName(), stepUuid));
 
     LOG.info("Creating temporary dataset {} for query results", resultTable.getDatasetId());
 
@@ -87,28 +88,27 @@ class BigQueryQueryHelper implements Serializable {
     String queryJobId = createJobIdToken(bqOptions.getJobName(), stepUuid) + "-query";
 
     LOG.info(
-        "Exporting query results into temporary table {} using job {}",
-        resultTable,
-        queryJobId);
+        "Exporting query results into temporary table {} using job {}", resultTable, queryJobId);
 
-    JobReference jobReference = new JobReference()
-        .setProjectId(bqOptions.getProject())
-        .setJobId(queryJobId);
+    JobReference jobReference =
+        new JobReference().setProjectId(bqOptions.getProject()).setJobId(queryJobId);
 
-    JobConfigurationQuery jobConfiguration = createBaseQueryConfig()
-        .setAllowLargeResults(true)
-        .setCreateDisposition("CREATE_IF_NEEDED")
-        .setDestinationTable(resultTable)
-        .setPriority("BATCH")
-        .setWriteDisposition("WRITE_EMPTY");
+    JobConfigurationQuery jobConfiguration =
+        createBaseQueryConfig()
+            .setAllowLargeResults(true)
+            .setCreateDisposition("CREATE_IF_NEEDED")
+            .setDestinationTable(resultTable)
+            .setPriority("BATCH")
+            .setWriteDisposition("WRITE_EMPTY");
 
     JobService jobService = bqServices.getJobService(bqOptions);
     jobService.startQueryJob(jobReference, jobConfiguration);
     Job job = jobService.pollJob(jobReference, JOB_POLL_MAX_RETRIES);
     if (BigQueryHelpers.parseStatus(job) != Status.SUCCEEDED) {
-      throw new IOException(String.format(
-          "Query job %s failed, status: %s.", queryJobId,
-          BigQueryHelpers.statusToPrettyString(job.getStatus())));
+      throw new IOException(
+          String.format(
+              "Query job %s failed, status: %s.",
+              queryJobId, BigQueryHelpers.statusToPrettyString(job.getStatus())));
     }
 
     return resultTable;

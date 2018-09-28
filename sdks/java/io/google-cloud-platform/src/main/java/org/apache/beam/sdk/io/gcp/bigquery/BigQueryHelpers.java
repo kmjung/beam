@@ -393,8 +393,7 @@ public class BigQueryHelpers {
       ReadOptions.TableReadOptions.Builder readOptionsBuilder = null;
       String sqlFilter = readSessionOptions.getSqlFilter();
       if (!Strings.isNullOrEmpty(sqlFilter)) {
-        readOptionsBuilder = ReadOptions.TableReadOptions.newBuilder()
-            .setFilter(sqlFilter);
+        readOptionsBuilder = ReadOptions.TableReadOptions.newBuilder().setFilter(sqlFilter);
       }
 
       List<String> selectedFields = readSessionOptions.getSelectedFields();
