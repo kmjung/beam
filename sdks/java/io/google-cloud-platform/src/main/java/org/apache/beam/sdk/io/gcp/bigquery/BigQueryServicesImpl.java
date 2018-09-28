@@ -49,7 +49,12 @@ import com.google.auth.Credentials;
 import com.google.auth.http.HttpCredentialsAdapter;
 import com.google.cloud.bigquery.storage.v1alpha1.BigQueryStorageClient;
 import com.google.cloud.bigquery.storage.v1alpha1.BigQueryStorageSettings;
-import com.google.cloud.bigquery.storage.v1alpha1.Storage;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.CreateReadSessionRequest;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsRequest;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsResponse;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadSession;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.SplitReadStreamRequest;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.SplitReadStreamResponse;
 import com.google.cloud.hadoop.util.ApiErrorExtractor;
 import com.google.cloud.hadoop.util.ChainingHttpRequestInitializer;
 import com.google.common.annotations.VisibleForTesting;
@@ -63,6 +68,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.beam.sdk.extensions.gcp.auth.NullCredentialInitializer;
 import org.apache.beam.sdk.extensions.gcp.options.GcsOptions;
@@ -845,6 +851,31 @@ class BigQueryServicesImpl implements BigQueryServices {
     }
   }
 
+  /**
+   * This wrapper type is junk, but we can't use the actual ServerStream implementation here since
+   * we use an old version of GAX (0.20.0) which has conflicts with the dependencies of the BQ
+   * storage API client code.
+   */
+  static class ServerStreamWrapper<T> implements ServerStream<T> {
+
+    private com.google.api.gax.rpc.ServerStream<T> serverStream;
+
+    public ServerStreamWrapper(com.google.api.gax.rpc.ServerStream<T> serverStream) {
+      this.serverStream = serverStream;
+    }
+
+    @Override
+    @Nonnull
+    public Iterator<T> iterator() {
+      return serverStream.iterator();
+    }
+
+    @Override
+    public void cancel() {
+      serverStream.cancel();
+    }
+  }
+
   static class TableReadServiceImpl implements TableReadService {
 
     private BigQueryStorageClient client;
@@ -857,13 +888,18 @@ class BigQueryServicesImpl implements BigQueryServices {
     }
 
     @Override
-    public Storage.ReadSession createSession(Storage.CreateReadSessionRequest request) {
+    public ReadSession createSession(CreateReadSessionRequest request) {
       return client.createReadSession(request);
     }
 
     @Override
-    public Iterator<Storage.ReadRowsResponse> readRows(Storage.ReadRowsRequest request) {
-      return client.readRowsCallable().blockingServerStreamingCall(request);
+    public ServerStream<ReadRowsResponse> readRows(ReadRowsRequest request) {
+      return new ServerStreamWrapper<>(client.readRowsCallable().call(request));
+    }
+
+    @Override
+    public SplitReadStreamResponse splitReadStream(SplitReadStreamRequest request) {
+      return client.splitReadStream(request);
     }
   }
 

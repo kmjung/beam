@@ -26,12 +26,16 @@ import com.google.cloud.bigquery.storage.v1alpha1.Storage.CreateReadSessionReque
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsRequest;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsResponse;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadSession;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.SplitReadStreamRequest;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.SplitReadStreamResponse;
 import com.google.cloud.bigquery.v3.TableReferenceProto;
 import com.google.common.base.Strings;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import javax.annotation.Nonnull;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.ServerStream;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.TableReadService;
 
 /**
@@ -39,21 +43,37 @@ import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.TableReadService;
  */
 public class FakeTableReadService implements TableReadService, Serializable {
 
+  private static class FakeServerStream<T> implements ServerStream<T>, Serializable {
+
+    private List<T> responses;
+
+    public FakeServerStream(List<T> responses) {
+      this.responses = new ArrayList<>(responses);
+    }
+
+    @Override
+    @Nonnull
+    public Iterator<T> iterator() {
+      return responses.iterator();
+    }
+
+    @Override
+    public void cancel() { }
+  }
+
   private CreateReadSessionRequest createReadSessionRequest;
   private ReadSession readSession;
   private ReadRowsRequest readRowsRequest;
-  private List<ReadRowsResponse> readRowsResponses;
+  private FakeServerStream<ReadRowsResponse> readRowsResponseStream;
 
-  void setCreateSessionResult(CreateReadSessionRequest createSessionRequest,
-      ReadSession readSession) {
-    this.createReadSessionRequest = createSessionRequest;
+  void setCreateSessionResult(CreateReadSessionRequest request, ReadSession readSession) {
+    this.createReadSessionRequest = request;
     this.readSession = readSession;
   }
 
-  void setReadRowsResponses(
-      ReadRowsRequest readRowsRequest, List<ReadRowsResponse> readRowsResponses) {
-    this.readRowsRequest = readRowsRequest;
-    this.readRowsResponses = new ArrayList<>(readRowsResponses);
+  void setReadRowsResponses(ReadRowsRequest request, List<ReadRowsResponse> responses) {
+    this.readRowsRequest = request;
+    this.readRowsResponseStream = new FakeServerStream<>(responses);
   }
 
   @Override
@@ -92,8 +112,13 @@ public class FakeTableReadService implements TableReadService, Serializable {
   }
 
   @Override
-  public Iterator<ReadRowsResponse> readRows(ReadRowsRequest request) {
+  public ServerStream<ReadRowsResponse> readRows(ReadRowsRequest request) {
     assertThat(request, equalTo(readRowsRequest));
-    return readRowsResponses.iterator();
+    return readRowsResponseStream;
+  }
+
+  @Override
+  public SplitReadStreamResponse splitReadStream(SplitReadStreamRequest request) {
+    return null;
   }
 }

@@ -28,10 +28,14 @@ import com.google.api.services.bigquery.model.JobStatistics;
 import com.google.api.services.bigquery.model.Table;
 import com.google.api.services.bigquery.model.TableReference;
 import com.google.api.services.bigquery.model.TableRow;
-import com.google.cloud.bigquery.storage.v1alpha1.Storage;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.CreateReadSessionRequest;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsRequest;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsResponse;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadSession;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.SplitReadStreamRequest;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.SplitReadStreamResponse;
 import java.io.IOException;
 import java.io.Serializable;
-import java.util.Iterator;
 import java.util.List;
 import javax.annotation.Nullable;
 import org.apache.beam.sdk.values.ValueInSingleWindow;
@@ -177,16 +181,37 @@ interface BigQueryServices extends Serializable {
         throws IOException, InterruptedException;
   }
 
+  /**
+   * This wrapper type is junk -- we should be creating a fake service instance with an actual
+   * in-process gRPC endpoint and using actual {@link com.google.api.gax.rpc.ServerStream} instances
+   * here. However, we can't do this today due to a conflict in the versions of gax-grpc used by the
+   * BQ storage client and by Beam. Once we rebase this code on top of the 2.8.0 release, the issue
+   * will be addressed.
+   *
+   * @param <T> The stream type.
+   */
+  interface ServerStream<T> extends Iterable<T> {
+    void cancel();
+  }
+
+  /**
+   * An interface to read data from BigQuery tables.
+   */
   interface TableReadService {
 
     /**
      * Creates a new read session against an existing table.
      */
-    Storage.ReadSession createSession(Storage.CreateReadSessionRequest request);
+    ReadSession createSession(CreateReadSessionRequest request);
 
     /**
      * Initiates a read stream from an existing session and read location.
      */
-    Iterator<Storage.ReadRowsResponse> readRows(Storage.ReadRowsRequest request);
+    ServerStream<ReadRowsResponse> readRows(ReadRowsRequest request);
+
+    /**
+     * Splits a read stream into a pair of child streams.
+     */
+    SplitReadStreamResponse splitReadStream(SplitReadStreamRequest request);
   }
 }
