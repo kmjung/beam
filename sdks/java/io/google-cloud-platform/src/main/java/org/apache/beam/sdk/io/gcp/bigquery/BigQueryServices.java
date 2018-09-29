@@ -156,6 +156,7 @@ public interface BigQueryServices extends Serializable {
         throws IOException, InterruptedException;
   }
 
+  /** An interface to read BigQuery table data. */
   interface TableReadService {
 
     /** Creates a new read session against an existing table. */

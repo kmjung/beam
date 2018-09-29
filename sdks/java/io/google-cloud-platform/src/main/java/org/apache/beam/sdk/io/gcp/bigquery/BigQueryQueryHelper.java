@@ -31,7 +31,9 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.Status;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.TypedRead.QueryPriority;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.DatasetService;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.JobService;
 import org.apache.beam.sdk.options.ValueProvider;
@@ -48,13 +50,23 @@ class BigQueryQueryHelper implements Serializable {
   private final ValueProvider<String> query;
   private final Boolean flattenResults;
   private final Boolean useLegacySql;
+  private final QueryPriority priority;
+  private final String location;
 
-  private transient JobStatistics dryRunJobStats = null;
+  private transient AtomicReference<JobStatistics> dryRunJobStats;
 
-  BigQueryQueryHelper(ValueProvider<String> query, Boolean flattenResults, Boolean useLegacySql) {
+  BigQueryQueryHelper(
+      ValueProvider<String> query,
+      Boolean flattenResults,
+      Boolean useLegacySql,
+      QueryPriority priority,
+      String location) {
     this.query = checkNotNull(query, "query");
     this.flattenResults = checkNotNull(flattenResults, "flattenResults");
     this.useLegacySql = checkNotNull(useLegacySql, "useLegacySql");
+    this.priority = priority;
+    this.location = location;
+    this.dryRunJobStats = new AtomicReference<>();
   }
 
   String getQuery() {
@@ -64,14 +76,15 @@ class BigQueryQueryHelper implements Serializable {
   synchronized JobStatistics dryRunQueryIfNeeded(
       BigQueryServices bqServices, BigQueryOptions bqOptions)
       throws InterruptedException, IOException {
-    if (dryRunJobStats == null) {
-      dryRunJobStats =
+    if (dryRunJobStats.get() == null) {
+      JobStatistics jobStats =
           bqServices
               .getJobService(bqOptions)
-              .dryRunQuery(bqOptions.getProject(), createBaseQueryConfig());
+              .dryRunQuery(bqOptions.getProject(), createBaseQueryConfig(), location);
+      dryRunJobStats.compareAndSet(null, jobStats);
     }
 
-    return dryRunJobStats;
+    return dryRunJobStats.get();
   }
 
   TableReference executeQuery(

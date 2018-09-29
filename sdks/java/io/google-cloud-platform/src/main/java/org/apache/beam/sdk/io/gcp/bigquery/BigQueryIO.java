@@ -463,6 +463,7 @@ public class BigQueryIO {
 
     public static final TableRowProtoParser INSTANCE = new TableRowProtoParser();
 
+    @Override
     public TableRow apply(SchemaAndRowProto schemaAndRowProto) {
       return BigQueryRowProtoUtils.convertRowProtoToTableRow(
           schemaAndRowProto.getSchema(), schemaAndRowProto.getRow());
@@ -1049,7 +1050,11 @@ public class BigQueryIO {
                           String jobUuid = c.element();
                           BigQueryQueryHelper queryHelper =
                               new BigQueryQueryHelper(
-                                  getQuery(), getFlattenResults(), getUseLegacySql());
+                                  getQuery(),
+                                  getFlattenResults(),
+                                  getUseLegacySql(),
+                                  getQueryPriority(),
+                                  getQueryLocation());
                           TableReference queryResultTable =
                               queryHelper.executeQuery(getBigQueryServices(), bqOptions, jobUuid);
                           c.output(BigQueryHelpers.toJsonString(queryResultTable));

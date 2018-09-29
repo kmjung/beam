@@ -264,6 +264,9 @@ class BeamModulePlugin implements Plugin<Project> {
 
       // Apache release snapshots
       maven { url "https://repository.apache.org/content/repositories/releases" }
+
+      // BigQuery storage Maven repository
+      maven { url "https://storage.googleapis.com/bigquery-storage-maven-repository" }
     }
 
     // Apply a plugin which enables configuring projects imported into Intellij.
@@ -319,6 +322,7 @@ class BeamModulePlugin implements Plugin<Project> {
     def kafka_version = "1.0.0"
     def quickcheck_version = "0.8"
     def google_cloud_core_version = "1.36.0"
+    def google_cloud_bigquery_storage_version = "0.0.4"
 
     // A map of maps containing common libraries used per language. To use:
     // dependencies {
@@ -364,6 +368,7 @@ class BeamModulePlugin implements Plugin<Project> {
         google_api_services_storage                 : "com.google.apis:google-api-services-storage:v1-rev124-$google_clients_version",
         google_auth_library_credentials             : "com.google.auth:google-auth-library-credentials:$google_auth_version",
         google_auth_library_oauth2_http             : "com.google.auth:google-auth-library-oauth2-http:$google_auth_version",
+        google_cloud_bigquery_storage               : "com.google.cloud.bigquery.storage.v1alpha1:bigquery_storage_client:$google_cloud_bigquery_storage_version",
         google_cloud_core                           : "com.google.cloud:google-cloud-core:$google_cloud_core_version",
         google_cloud_core_grpc                      : "com.google.cloud:google-cloud-core-grpc:$google_cloud_core_version",
         google_cloud_dataflow_java_proto_library_all: "com.google.cloud.dataflow:google-cloud-dataflow-java-proto-library-all:0.5.160304",

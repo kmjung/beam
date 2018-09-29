@@ -394,6 +394,8 @@ public class BigQueryWordCount {
                       .from(DEFAULT_TABLE_REFERENCE));
         }
         break;
+      default:
+        throw new IllegalStateException("Unknown pipeline type: " + options.getPipelineType());
     }
 
     PCollection<KV<String, Long>> editsPerAuthor =

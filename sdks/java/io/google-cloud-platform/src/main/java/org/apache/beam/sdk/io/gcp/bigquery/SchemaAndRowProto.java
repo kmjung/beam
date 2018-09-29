@@ -27,6 +27,8 @@ import com.google.cloud.bigquery.v3.RowOuterClass.StructValue;
 import com.google.cloud.bigquery.v3.RowOuterClass.TypeKind;
 import com.google.cloud.bigquery.v3.RowOuterClass.Value;
 import com.google.cloud.bigquery.v3.RowOuterClass.Value.ValueCase;
+import com.google.common.base.Splitter;
+import java.util.List;
 import javax.annotation.Nullable;
 
 /**
@@ -54,12 +56,12 @@ public class SchemaAndRowProto {
   /** Gets the value of the specified (possibly nested) field or null if it can't be found. */
   @Nullable
   public Object get(String fieldName) {
-    String[] subFieldNames = fieldName.split("\\.");
+    List<String> subFieldNames = Splitter.on('.').splitToList(fieldName);
     StructType structType = tableSchema;
     StructValue structValue = row.getValue();
 
-    for (int i = 0; i < subFieldNames.length - 1; i++) {
-      int fieldIndex = getFieldIndex(structType, subFieldNames[i]);
+    for (int i = 0; i < subFieldNames.size() - 1; i++) {
+      int fieldIndex = getFieldIndex(structType, subFieldNames.get(i));
       if (fieldIndex == -1) {
         return null;
       }
@@ -77,7 +79,7 @@ public class SchemaAndRowProto {
       structValue = fieldValue.getStructValue();
     }
 
-    String leafFieldName = subFieldNames[subFieldNames.length - 1];
+    String leafFieldName = subFieldNames.get(subFieldNames.size() - 1);
     int fieldIndex = getFieldIndex(structType, leafFieldName);
     if (fieldIndex == -1) {
       return null;

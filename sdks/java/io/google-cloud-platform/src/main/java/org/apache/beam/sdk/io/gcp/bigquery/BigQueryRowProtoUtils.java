@@ -52,7 +52,7 @@ public class BigQueryRowProtoUtils {
 
     checkState(
         structFieldTypes.size() == structFieldValues.size(),
-        "Struct value %s had unexpected field count %d (schema had %d fields)",
+        "Struct value %s had unexpected field count %s (schema had %s fields)",
         structValue,
         structFieldValues.size(),
         structFieldTypes.size());

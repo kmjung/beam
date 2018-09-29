@@ -17,6 +17,7 @@
  */
 package org.apache.beam.sdk.io.gcp.bigquery;
 
+import static com.google.common.base.Charsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 
 import com.google.api.services.bigquery.model.TableRow;
@@ -143,7 +144,7 @@ public class BigQueryRowProtoUtilsTest {
 
     {
       // Test type conversions.
-      byte[] soundBytes = "chirp,chirp".getBytes();
+      byte[] soundBytes = "chirp,chirp".getBytes(UTF_8);
       ByteString byteString = ByteString.copyFrom(soundBytes);
 
       Row row =
