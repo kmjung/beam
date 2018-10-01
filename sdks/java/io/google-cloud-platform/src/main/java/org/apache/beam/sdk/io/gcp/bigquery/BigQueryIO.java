@@ -1050,13 +1050,15 @@ public class BigQueryIO {
                           String jobUuid = c.element();
                           BigQueryQueryHelper queryHelper =
                               new BigQueryQueryHelper(
+                                  jobUuid,
                                   getQuery(),
                                   getFlattenResults(),
                                   getUseLegacySql(),
-                                  getQueryPriority(),
+                                  getBigQueryServices(),
+                                  MoreObjects.firstNonNull(getQueryPriority(), QueryPriority.BATCH),
                                   getQueryLocation());
                           TableReference queryResultTable =
-                              queryHelper.executeQuery(getBigQueryServices(), bqOptions, jobUuid);
+                              queryHelper.createTableAndExecuteQuery(bqOptions);
                           c.output(BigQueryHelpers.toJsonString(queryResultTable));
                         }
                       }));

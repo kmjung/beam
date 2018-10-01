@@ -28,9 +28,9 @@ import com.google.api.services.bigquery.model.JobReference;
 import com.google.api.services.bigquery.model.JobStatistics;
 import com.google.api.services.bigquery.model.TableReference;
 import java.io.IOException;
+import java.io.ObjectInputStream;
 import java.io.Serializable;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.Status;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.TypedRead.QueryPriority;
@@ -41,100 +41,135 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 class BigQueryQueryHelper implements Serializable {
-
   private static final Logger LOG = LoggerFactory.getLogger(BigQueryQueryHelper.class);
 
-  // The maximum number of polling attempts while waiting for a query job.
+  // The maximum number of retries to poll a BigQuery job.
   private static final int JOB_POLL_MAX_RETRIES = Integer.MAX_VALUE;
 
+  private final String stepUuid;
   private final ValueProvider<String> query;
   private final Boolean flattenResults;
   private final Boolean useLegacySql;
+  private final BigQueryServices bqServices;
   private final QueryPriority priority;
   private final String location;
 
   private transient AtomicReference<JobStatistics> dryRunJobStats;
 
-  BigQueryQueryHelper(
+  public BigQueryQueryHelper(
+      String stepUuid,
       ValueProvider<String> query,
       Boolean flattenResults,
       Boolean useLegacySql,
+      BigQueryServices bqServices,
       QueryPriority priority,
       String location) {
+    this.stepUuid = checkNotNull(stepUuid, "stepUuid");
     this.query = checkNotNull(query, "query");
     this.flattenResults = checkNotNull(flattenResults, "flattenResults");
     this.useLegacySql = checkNotNull(useLegacySql, "useLegacySql");
+    this.bqServices = checkNotNull(bqServices, "bqServices");
+    this.dryRunJobStats = new AtomicReference<>();
     this.priority = priority;
     this.location = location;
-    this.dryRunJobStats = new AtomicReference<>();
   }
 
-  String getQuery() {
-    return query.get();
+  public ValueProvider<String> getQuery() {
+    return query;
   }
 
-  synchronized JobStatistics dryRunQueryIfNeeded(
-      BigQueryServices bqServices, BigQueryOptions bqOptions)
-      throws InterruptedException, IOException {
+  public synchronized JobStatistics dryRunQueryIfNeeded(BigQueryOptions bqOptions)
+      throws IOException, InterruptedException {
     if (dryRunJobStats.get() == null) {
       JobStatistics jobStats =
           bqServices
               .getJobService(bqOptions)
-              .dryRunQuery(bqOptions.getProject(), createBaseQueryConfig(), location);
+              .dryRunQuery(bqOptions.getProject(), createBasicQueryConfig(), location);
       dryRunJobStats.compareAndSet(null, jobStats);
     }
-
     return dryRunJobStats.get();
   }
 
-  TableReference executeQuery(
-      BigQueryServices bqServices, BigQueryOptions bqOptions, String stepUuid)
+  public TableReference createTableAndExecuteQuery(BigQueryOptions bqOptions)
       throws IOException, InterruptedException {
-    // 1. Find the location in which the query will be executed.
-    List<TableReference> referencedTables =
-        dryRunQueryIfNeeded(bqServices, bqOptions).getQuery().getReferencedTables();
-
-    String location = null;
-    DatasetService datasetService = bqServices.getDatasetService(bqOptions);
-    if (referencedTables != null && !referencedTables.isEmpty()) {
-      TableReference queryResultTable = referencedTables.get(0);
-      location = datasetService.getTable(queryResultTable).getLocation();
+    // 1. Find the location of the query.
+    String location = this.location;
+    DatasetService tableService = bqServices.getDatasetService(bqOptions);
+    if (location == null) {
+      // If location was not provided we try to determine it from the tables referenced by the
+      // Query. This will only work for BQ locations US and EU.
+      List<TableReference> referencedTables =
+          dryRunQueryIfNeeded(bqOptions).getQuery().getReferencedTables();
+      if (referencedTables != null && !referencedTables.isEmpty()) {
+        TableReference queryTable = referencedTables.get(0);
+        location = tableService.getTable(queryTable).getLocation();
+      }
     }
 
-    // 2. Create the temporary dataset in the appropriate location.
-    TableReference resultTable =
-        createTempTableReference(
-            bqOptions.getProject(), createJobIdToken(bqOptions.getJobName(), stepUuid));
+    String jobIdToken = createJobIdToken(bqOptions.getJobName(), stepUuid);
 
-    LOG.info("Creating temporary dataset {} for query results", resultTable.getDatasetId());
+    // 2. Create the temporary dataset in the query location.
+    TableReference tableToExtract = createTempTableReference(bqOptions.getProject(), jobIdToken);
 
-    datasetService.createDataset(
-        resultTable.getProjectId(),
-        resultTable.getDatasetId(),
+    LOG.info("Creating temporary dataset {} for query results", tableToExtract.getDatasetId());
+    tableService.createDataset(
+        tableToExtract.getProjectId(),
+        tableToExtract.getDatasetId(),
         location,
         "Temporary tables for query results of job " + bqOptions.getJobName(),
-        TimeUnit.DAYS.toMillis(1));
+        // Set a TTL of 1 day on the temporary tables, which ought to be enough in all cases:
+        // the temporary tables are used only to immediately extract them into files.
+        // They are normally cleaned up, but in case of job failure the cleanup step may not run,
+        // and then they'll get deleted after the TTL.
+        24 * 3600 * 1000L /* 1 day */);
 
-    // 3. Execute the query, writing the results to the temporary table.
-    String queryJobId = createJobIdToken(bqOptions.getJobName(), stepUuid) + "-query";
+    // 3. Execute the query.
+    executeQuery(
+        jobIdToken,
+        bqOptions.getProject(),
+        tableToExtract,
+        bqServices.getJobService(bqOptions),
+        location);
+
+    return tableToExtract;
+  }
+
+  private void executeQuery(
+      String jobIdToken,
+      String executingProject,
+      TableReference destinationTable,
+      JobService jobService,
+      String bqLocation)
+      throws IOException, InterruptedException {
+    // Generate a transient (random) query job ID, because this code may be retried after the
+    // temporary dataset and table have already been deleted by a previous attempt -
+    // in that case we want to re-generate the temporary dataset and table, and we'll need
+    // a fresh query job to do that.
+    String queryJobId = jobIdToken + "-query-" + BigQueryHelpers.randomUUIDString();
 
     LOG.info(
-        "Exporting query results into temporary table {} using job {}", resultTable, queryJobId);
+        "Exporting query results into temporary table {} using job {}",
+        destinationTable,
+        queryJobId);
 
-    JobReference jobReference =
-        new JobReference().setProjectId(bqOptions.getProject()).setJobId(queryJobId);
+    JobReference jobRef =
+        new JobReference()
+            .setProjectId(executingProject)
+            .setLocation(bqLocation)
+            .setJobId(queryJobId);
 
-    JobConfigurationQuery jobConfiguration =
-        createBaseQueryConfig()
+    JobConfigurationQuery queryConfig =
+        createBasicQueryConfig()
             .setAllowLargeResults(true)
             .setCreateDisposition("CREATE_IF_NEEDED")
-            .setDestinationTable(resultTable)
-            .setPriority("BATCH")
-            .setWriteDisposition("WRITE_EMPTY");
+            .setDestinationTable(destinationTable)
+            .setPriority(this.priority.name())
+            // Overwrite contents of the temporary table - it can only already exist if this
+            // is a retry of the splitting task, in which case we must not produce duplicate data.
+            .setWriteDisposition("WRITE_TRUNCATE");
 
-    JobService jobService = bqServices.getJobService(bqOptions);
-    jobService.startQueryJob(jobReference, jobConfiguration);
-    Job job = jobService.pollJob(jobReference, JOB_POLL_MAX_RETRIES);
+    jobService.startQueryJob(jobRef, queryConfig);
+    Job job = jobService.pollJob(jobRef, JOB_POLL_MAX_RETRIES);
     if (BigQueryHelpers.parseStatus(job) != Status.SUCCEEDED) {
       throw new IOException(
           String.format(
@@ -142,13 +177,18 @@ class BigQueryQueryHelper implements Serializable {
               queryJobId, BigQueryHelpers.statusToPrettyString(job.getStatus())));
     }
 
-    return resultTable;
+    LOG.info("Query job {} completed", queryJobId);
   }
 
-  private JobConfigurationQuery createBaseQueryConfig() {
+  private JobConfigurationQuery createBasicQueryConfig() {
     return new JobConfigurationQuery()
-        .setQuery(query.get())
         .setFlattenResults(flattenResults)
+        .setQuery(query.get())
         .setUseLegacySql(useLegacySql);
+  }
+
+  private void readObject(ObjectInputStream in) throws ClassNotFoundException, IOException {
+    in.defaultReadObject();
+    dryRunJobStats = new AtomicReference<>();
   }
 }
