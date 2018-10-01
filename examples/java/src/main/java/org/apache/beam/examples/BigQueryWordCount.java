@@ -247,15 +247,9 @@ public class BigQueryWordCount {
     void setOutputPath(String outputPath);
   }
 
-  public static void main(String[] args) {
-
-    BigQueryWordCountOptions options =
-        PipelineOptionsFactory.fromArgs(args).withValidation().as(BigQueryWordCountOptions.class);
-
+  static void runBQWordCount(BigQueryWordCountOptions options) {
     Pipeline pipeline = Pipeline.create(options);
-
-    PCollection<TrimmedEditRecord> editRecords = null;
-
+    PCollection<TrimmedEditRecord> editRecords;
     switch (options.getPipelineType()) {
       case READ_FULL_ROWS:
         if (options.getReadMode() == ReadMode.GCS_EXPORT) {
@@ -409,5 +403,11 @@ public class BigQueryWordCount {
     PAssert.thatSingleton(editsPerAuthor.apply(Count.globally())).isEqualTo(16725243L);
 
     pipeline.run().waitUntilFinish();
+  }
+
+  public static void main(String[] args) {
+    BigQueryWordCountOptions options =
+        PipelineOptionsFactory.fromArgs(args).withValidation().as(BigQueryWordCountOptions.class);
+    runBQWordCount(options);
   }
 }
