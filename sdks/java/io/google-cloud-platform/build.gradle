@@ -73,6 +73,9 @@ dependencies {
   shadowTest project(path: ":beam-sdks-java-core", configuration: "shadowTest")
   shadowTest project(path: ":beam-sdks-java-extensions-google-cloud-platform-core", configuration: "shadowTest")
   shadowTest project(path: ":beam-runners-direct-java", configuration: "shadow")
+  shadowTest library.java.gax_testlib
+  shadowTest library.java.gax_grpc_testlib
+  shadowTest library.java.google_cloud_bigquery_storage_grpc
   shadowTest library.java.hamcrest_core
   shadowTest library.java.hamcrest_library
   shadowTest library.java.mockito_core

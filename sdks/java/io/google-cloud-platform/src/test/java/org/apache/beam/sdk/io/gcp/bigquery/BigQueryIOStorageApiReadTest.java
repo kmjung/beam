@@ -49,6 +49,7 @@ import com.google.cloud.bigquery.v3.RowOuterClass.Value;
 import com.google.cloud.bigquery.v3.TableReferenceProto;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.protobuf.GeneratedMessageV3;
 import java.math.BigInteger;
 import java.util.List;
 import org.apache.beam.sdk.Pipeline;
@@ -70,7 +71,9 @@ import org.apache.beam.sdk.transforms.SerializableFunctions;
 import org.apache.beam.sdk.transforms.display.DisplayData;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
+import org.junit.AfterClass;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
@@ -148,20 +151,28 @@ public class BigQueryIOStorageApiReadTest {
 
   private FakeDatasetService fakeDatasetService;
   private FakeJobService fakeJobService;
-  private FakeTableReadService fakeTableReadService;
   private FakeBigQueryServices fakeBigQueryServices;
+
+  @BeforeClass
+  public static void setUpClass() {
+    FakeStorageService.startServer();
+  }
+
+  @AfterClass
+  public static void tearDownClass() {
+    FakeStorageService.stopServer();
+  }
 
   @Before
   public void setUpTest() {
+    FakeStorageService.reset();
     FakeDatasetService.setUp();
     fakeDatasetService = new FakeDatasetService();
     fakeJobService = new FakeJobService();
-    fakeTableReadService = new FakeTableReadService();
     fakeBigQueryServices =
         new FakeBigQueryServices()
             .withDatasetService(fakeDatasetService)
-            .withJobService(fakeJobService)
-            .withTableReadService(fakeTableReadService);
+            .withJobService(fakeJobService);
   }
 
   @Test
@@ -445,7 +456,7 @@ public class BigQueryIOStorageApiReadTest {
       sessionBuilder.addStreams(Stream.newBuilder());
     }
 
-    fakeTableReadService.setCreateSessionResult(createSessionRequest, sessionBuilder.build());
+    FakeStorageService.addCreateReadSessionResponse(sessionBuilder.build());
 
     BoundedSource<Row> source =
         BigQueryStorageTableSource.create(
@@ -459,6 +470,9 @@ public class BigQueryIOStorageApiReadTest {
     assertEquals(50, sources.size());
     long expectedSizeBytes = TABLE_SIZE_BYTES / 50;
     assertEquals(expectedSizeBytes, sources.get(0).getEstimatedSizeBytes(options));
+
+    List<GeneratedMessageV3> requests = FakeStorageService.getRequests();
+    assertEquals(createSessionRequest, requests.get(0));
   }
 
   @Test
@@ -477,7 +491,7 @@ public class BigQueryIOStorageApiReadTest {
     ReadSession readSession =
         ReadSession.newBuilder().setName("session").addStreams(Stream.newBuilder()).build();
 
-    fakeTableReadService.setCreateSessionResult(createReadSessionRequest, readSession);
+    FakeStorageService.addCreateReadSessionResponse(readSession);
 
     TableReference tableReference =
         new TableReference().setDatasetId(DEFAULT_DATASET_ID).setTableId(DEFAULT_TABLE_ID);
@@ -495,6 +509,9 @@ public class BigQueryIOStorageApiReadTest {
     List<? extends BoundedSource<Row>> sources = source.split(1024, options);
     assertEquals(1, sources.size());
     assertEquals(TABLE_SIZE_BYTES, sources.get(0).getEstimatedSizeBytes(options));
+
+    List<GeneratedMessageV3> requests = FakeStorageService.getRequests();
+    assertEquals(createReadSessionRequest, requests.get(0));
   }
 
   @Test
@@ -511,7 +528,7 @@ public class BigQueryIOStorageApiReadTest {
 
     // Return a session with no read locations.
     ReadSession readSession = ReadSession.newBuilder().setName("session").build();
-    fakeTableReadService.setCreateSessionResult(createReadSessionRequest, readSession);
+    FakeStorageService.addCreateReadSessionResponse(readSession);
 
     BoundedSource<Row> source =
         BigQueryStorageTableSource.create(
@@ -523,6 +540,9 @@ public class BigQueryIOStorageApiReadTest {
 
     List<? extends BoundedSource<Row>> sources = source.split(1024, options);
     assertEquals(0, sources.size());
+
+    List<GeneratedMessageV3> requests = FakeStorageService.getRequests();
+    assertEquals(createReadSessionRequest, requests.get(0));
   }
 
   @Test
@@ -655,7 +675,7 @@ public class BigQueryIOStorageApiReadTest {
             .addStreams(Stream.newBuilder().setName("stream name"))
             .build();
 
-    fakeTableReadService.setCreateSessionResult(createReadSessionRequest, readSession);
+    FakeStorageService.addCreateReadSessionResponse(readSession);
 
     List<ReadRowsResponse> readRowsResponses =
         Lists.newArrayList(
@@ -682,7 +702,7 @@ public class BigQueryIOStorageApiReadTest {
                                 .addFields(Value.newBuilder().setInt64Value(3L))))
                 .build());
 
-    fakeTableReadService.setReadRowsResponses(readRowsRequest, readRowsResponses);
+    FakeStorageService.addReadRowsResponses(readRowsResponses);
 
     Table table = new Table().setTableReference(defaultTableReference).setNumBytes(1L);
     fakeDatasetService.createDataset(DEFAULT_PROJECT_ID, DEFAULT_DATASET_ID, "", "", null);
@@ -705,6 +725,10 @@ public class BigQueryIOStorageApiReadTest {
         .containsInAnyOrder(ImmutableList.of(KV.of("a", 1L), KV.of("b", 2L), KV.of("c", 3L)));
 
     pipeline.run();
+
+    List<GeneratedMessageV3> requests = FakeStorageService.getRequests();
+    assertEquals(createReadSessionRequest, requests.get(0));
+    assertEquals(readRowsRequest, requests.get(1));
   }
 
   @Test
@@ -842,13 +866,6 @@ public class BigQueryIOStorageApiReadTest {
                     .setTotalBytesProcessed(TABLE_SIZE_BYTES)
                     .setReferencedTables(ImmutableList.of(tempTableReference))));
 
-    CreateReadSessionRequest expectedCreateReadSessionRequest =
-        CreateReadSessionRequest.newBuilder(createReadSessionRequest)
-            .setTableReference(
-                TableReferenceProto.TableReference.newBuilder()
-                    .setProjectId(tempTableReference.getProjectId()))
-            .build();
-
     ReadSession readSession =
         ReadSession.newBuilder()
             .setName("session name")
@@ -856,7 +873,7 @@ public class BigQueryIOStorageApiReadTest {
             .addStreams(Stream.newBuilder().setName("stream name"))
             .build();
 
-    fakeTableReadService.setCreateSessionResult(expectedCreateReadSessionRequest, readSession);
+    FakeStorageService.addCreateReadSessionResponse(readSession);
 
     List<ReadRowsResponse> readRowsResponses =
         Lists.newArrayList(
@@ -883,7 +900,7 @@ public class BigQueryIOStorageApiReadTest {
                                 .addFields(Value.newBuilder().setInt64Value(3L))))
                 .build());
 
-    fakeTableReadService.setReadRowsResponses(readRowsRequest, readRowsResponses);
+    FakeStorageService.addReadRowsResponses(readRowsResponses);
 
     Pipeline pipeline = TestPipeline.create(bqOptions);
 
@@ -900,5 +917,10 @@ public class BigQueryIOStorageApiReadTest {
         .containsInAnyOrder(ImmutableList.of(KV.of("a", 1L), KV.of("b", 2L), KV.of("c", 3L)));
 
     pipeline.run();
+
+    List<GeneratedMessageV3> requests = FakeStorageService.getRequests();
+    CreateReadSessionRequest actualRequest = (CreateReadSessionRequest) requests.get(0);
+    assertEquals(createReadSessionRequest.getReadOptions(), actualRequest.getReadOptions());
+    assertEquals(readRowsRequest, requests.get(1));
   }
 }

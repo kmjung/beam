@@ -120,7 +120,7 @@ class BigQueryStorageTableSource<T> extends BoundedSource<T> {
 
     Storage.ReadSession readSession =
         BigQueryHelpers.createReadSession(
-            bqServices.getTableReadService(bqOptions),
+            bqServices.getStorageClient(bqOptions),
             tableReference,
             readerCount,
             readSessionOptions);
