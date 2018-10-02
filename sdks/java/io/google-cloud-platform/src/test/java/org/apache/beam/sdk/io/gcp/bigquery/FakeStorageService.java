@@ -215,6 +215,10 @@ public class FakeStorageService {
     fakeBigQueryStorageService.addResponseUnsafe(responses);
   }
 
+  public static void addSplitReadStreamResponse(SplitReadStreamResponse response) {
+    fakeBigQueryStorageService.addResponse(response);
+  }
+
   public static List<GeneratedMessageV3> getRequests() {
     return fakeBigQueryStorageService.getRequests();
   }

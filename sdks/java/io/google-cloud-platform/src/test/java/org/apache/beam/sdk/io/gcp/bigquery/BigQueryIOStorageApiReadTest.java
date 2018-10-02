@@ -21,8 +21,11 @@ import static org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.createJobIdTok
 import static org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.createTempTableReference;
 import static org.apache.beam.sdk.transforms.display.DisplayDataMatchers.hasDisplayItem;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 
 import com.google.api.services.bigquery.model.JobStatistics;
 import com.google.api.services.bigquery.model.JobStatistics2;
@@ -37,6 +40,7 @@ import com.google.cloud.bigquery.storage.v1alpha1.Storage.CreateReadSessionReque
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsRequest;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsResponse;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadSession;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.SplitReadStreamResponse;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.Stream;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.StreamPosition;
 import com.google.cloud.bigquery.v3.RowOuterClass.Row;
@@ -61,6 +65,8 @@ import org.apache.beam.sdk.extensions.protobuf.ProtoCoder;
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.ReadSessionOptions;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.TypedRead.Method;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryStorageStreamSource.BigQueryStorageStreamReader;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryStorageStreamSource.SplitDisposition;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.ValueProvider;
@@ -468,8 +474,6 @@ public class BigQueryIOStorageApiReadTest {
 
     List<? extends BoundedSource<Row>> sources = source.split(desiredBundleSizeBytes, options);
     assertEquals(50, sources.size());
-    long expectedSizeBytes = TABLE_SIZE_BYTES / 50;
-    assertEquals(expectedSizeBytes, sources.get(0).getEstimatedSizeBytes(options));
 
     List<GeneratedMessageV3> requests = FakeStorageService.getRequests();
     assertEquals(createSessionRequest, requests.get(0));
@@ -508,7 +512,6 @@ public class BigQueryIOStorageApiReadTest {
             .as(BigQueryOptions.class);
     List<? extends BoundedSource<Row>> sources = source.split(1024, options);
     assertEquals(1, sources.size());
-    assertEquals(TABLE_SIZE_BYTES, sources.get(0).getEstimatedSizeBytes(options));
 
     List<GeneratedMessageV3> requests = FakeStorageService.getRequests();
     assertEquals(createReadSessionRequest, requests.get(0));
@@ -922,5 +925,241 @@ public class BigQueryIOStorageApiReadTest {
     CreateReadSessionRequest actualRequest = (CreateReadSessionRequest) requests.get(0);
     assertEquals(createReadSessionRequest.getReadOptions(), actualRequest.getReadOptions());
     assertEquals(readRowsRequest, requests.get(1));
+  }
+
+  @Test
+  public void testSplitAtFraction() throws Exception {
+    Stream originalStream = Stream.newBuilder().setName("original stream").build();
+    Stream primaryStream = Stream.newBuilder().setName("primary stream").build();
+    Stream residualStream = Stream.newBuilder().setName("residual stream").build();
+
+    ReadSession readSession =
+        ReadSession.newBuilder()
+            .setName("session name")
+            .setProjectedSchema(defaultStructType)
+            .addStreams(originalStream)
+            .build();
+
+    BigQueryStorageStreamSource<Row> source =
+        BigQueryStorageStreamSource.create(
+            readSession,
+            originalStream,
+            SchemaAndRowProto::getRow,
+            ProtoCoder.of(Row.class),
+            fakeBigQueryServices);
+
+    List<Row> expectedRows =
+        Lists.newArrayList(
+            Row.newBuilder()
+                .setValue(
+                    StructValue.newBuilder()
+                        .addFields(Value.newBuilder().setStringValue("a"))
+                        .addFields(Value.newBuilder().setInt64Value(1L)))
+                .build(),
+            Row.newBuilder()
+                .setValue(
+                    StructValue.newBuilder()
+                        .addFields(Value.newBuilder().setStringValue("b"))
+                        .addFields(Value.newBuilder().setInt64Value(2L)))
+                .build(),
+            Row.newBuilder()
+                .setValue(
+                    StructValue.newBuilder()
+                        .addFields(Value.newBuilder().setStringValue("c"))
+                        .addFields(Value.newBuilder().setInt64Value(3L)))
+                .build());
+
+    List<ReadRowsResponse> readRowsResponses =
+        Lists.newArrayList(
+            ReadRowsResponse.newBuilder()
+                .addRows(expectedRows.get(0))
+                .addRows(expectedRows.get(1))
+                .addRows(expectedRows.get(2))
+                .build());
+
+    FakeStorageService.addReadRowsResponses(readRowsResponses);
+
+    BigQueryOptions options = TestPipeline.testingPipelineOptions().as(BigQueryOptions.class);
+    BigQueryStorageStreamReader<Row> reader = source.createReader(options);
+    assertTrue(reader.start());
+    assertEquals(expectedRows.get(0), reader.getCurrent());
+    assertTrue(reader.advance());
+    assertEquals(expectedRows.get(1), reader.getCurrent());
+
+    SplitReadStreamResponse splitResponse =
+        SplitReadStreamResponse.newBuilder()
+            .setPrimaryStream(Stream.newBuilder(primaryStream).setRowCount(3))
+            .setRemainderStream(Stream.newBuilder(residualStream).setRowCount(0))
+            .build();
+
+    FakeStorageService.addSplitReadStreamResponse(splitResponse);
+
+    readRowsResponses =
+        Lists.newArrayList(ReadRowsResponse.newBuilder().addRows(expectedRows.get(2)).build());
+
+    FakeStorageService.addReadRowsResponses(readRowsResponses);
+
+    StreamPosition expectedSplitPosition =
+        StreamPosition.newBuilder().setStream(originalStream).setOffset(1).build();
+
+    BigQueryStorageStreamSource<Row> residual = reader.splitAtFraction(0.9);
+    assertNotNull(residual);
+    assertEquals(readSession, residual.getReadSession());
+    assertEquals(originalStream, residual.getStream());
+    assertEquals(SplitDisposition.RESIDUAL, residual.getSplitDisposition());
+    assertEquals(expectedSplitPosition, residual.getSplitPosition());
+
+    BigQueryStorageStreamSource<Row> primary = reader.getCurrentSource();
+    assertEquals(readSession, residual.getReadSession());
+    assertEquals(originalStream, primary.getStream());
+    assertEquals(SplitDisposition.PRIMARY, primary.getSplitDisposition());
+    assertEquals(expectedSplitPosition, primary.getSplitPosition());
+
+    assertTrue(reader.advance());
+
+    primary = reader.getCurrentSource();
+    assertEquals(readSession, primary.getReadSession());
+    assertEquals(primaryStream.getName(), primary.getStream().getName());
+    assertEquals(SplitDisposition.SELF, primary.getSplitDisposition());
+    assertNull(primary.getSplitPosition());
+
+    assertEquals(expectedRows.get(2), reader.getCurrent());
+    assertFalse(reader.advance());
+    reader.close();
+
+    FakeStorageService.addSplitReadStreamResponse(splitResponse);
+    FakeStorageService.addReadRowsResponses(Lists.newArrayList());
+
+    reader = residual.createReader(options);
+    assertFalse(reader.start());
+
+    residual = reader.getCurrentSource();
+    assertEquals(readSession, residual.getReadSession());
+    assertEquals(residualStream, residual.getStream());
+    assertEquals(0, residual.getStartOffset());
+    assertEquals(StreamOffsetRangeTracker.OFFSET_INFINITY, residual.getStopOffset());
+    assertEquals(SplitDisposition.SELF, residual.getSplitDisposition());
+    assertNull(residual.getSplitPosition());
+  }
+
+  @Test
+  public void testSplitAtFractionResidual() throws Exception {
+    Stream originalStream = Stream.newBuilder().setName("original stream").build();
+    Stream primaryStream = Stream.newBuilder().setName("primary stream").build();
+    Stream residualStream = Stream.newBuilder().setName("residual stream").build();
+
+    ReadSession readSession =
+        ReadSession.newBuilder()
+            .setName("session name")
+            .setProjectedSchema(defaultStructType)
+            .addStreams(originalStream)
+            .build();
+
+    BigQueryStorageStreamSource<Row> source =
+        BigQueryStorageStreamSource.create(
+            readSession,
+            originalStream,
+            SchemaAndRowProto::getRow,
+            ProtoCoder.of(Row.class),
+            fakeBigQueryServices);
+
+    List<Row> expectedRows =
+        Lists.newArrayList(
+            Row.newBuilder()
+                .setValue(
+                    StructValue.newBuilder()
+                        .addFields(Value.newBuilder().setStringValue("a"))
+                        .addFields(Value.newBuilder().setInt64Value(1L)))
+                .build(),
+            Row.newBuilder()
+                .setValue(
+                    StructValue.newBuilder()
+                        .addFields(Value.newBuilder().setStringValue("b"))
+                        .addFields(Value.newBuilder().setInt64Value(2L)))
+                .build(),
+            Row.newBuilder()
+                .setValue(
+                    StructValue.newBuilder()
+                        .addFields(Value.newBuilder().setStringValue("c"))
+                        .addFields(Value.newBuilder().setInt64Value(3L)))
+                .build());
+
+    List<ReadRowsResponse> readRowsResponses =
+        Lists.newArrayList(
+            ReadRowsResponse.newBuilder()
+                .addRows(expectedRows.get(0))
+                .addRows(expectedRows.get(1))
+                .addRows(expectedRows.get(2))
+                .build());
+
+    FakeStorageService.addReadRowsResponses(readRowsResponses);
+
+    BigQueryOptions options = TestPipeline.testingPipelineOptions().as(BigQueryOptions.class);
+    BigQueryStorageStreamReader<Row> reader = source.createReader(options);
+    assertTrue(reader.start());
+    assertEquals(expectedRows.get(0), reader.getCurrent());
+    assertTrue(reader.advance());
+    assertEquals(expectedRows.get(1), reader.getCurrent());
+
+    SplitReadStreamResponse splitResponse =
+        SplitReadStreamResponse.newBuilder()
+            .setPrimaryStream(Stream.newBuilder(primaryStream).setRowCount(1))
+            .setRemainderStream(Stream.newBuilder(residualStream).setRowCount(2))
+            .build();
+
+    FakeStorageService.addSplitReadStreamResponse(splitResponse);
+
+    StreamPosition expectedSplitPosition =
+        StreamPosition.newBuilder().setStream(originalStream).setOffset(1).build();
+
+    readRowsResponses =
+        Lists.newArrayList(ReadRowsResponse.newBuilder().addRows(expectedRows.get(2)).build());
+
+    FakeStorageService.addReadRowsResponses(readRowsResponses);
+
+    BigQueryStorageStreamSource<Row> residual = reader.splitAtFraction(0.9);
+    assertNotNull(residual);
+    assertEquals(readSession, residual.getReadSession());
+    assertEquals(originalStream, residual.getStream());
+    assertEquals(SplitDisposition.RESIDUAL, residual.getSplitDisposition());
+    assertEquals(expectedSplitPosition, residual.getSplitPosition());
+
+    BigQueryStorageStreamSource<Row> primary = reader.getCurrentSource();
+    assertEquals(readSession, primary.getReadSession());
+    assertEquals(originalStream, primary.getStream());
+    assertEquals(SplitDisposition.PRIMARY, primary.getSplitDisposition());
+    assertEquals(expectedSplitPosition, primary.getSplitPosition());
+
+    assertFalse(reader.advance());
+
+    primary = reader.getCurrentSource();
+    assertEquals(readSession, primary.getReadSession());
+    assertEquals(originalStream, primary.getStream());
+    assertEquals(0L, primary.getStartOffset());
+    assertEquals(2, primary.getStopOffset());
+    assertEquals(SplitDisposition.SELF, primary.getSplitDisposition());
+    assertNull(primary.getSplitPosition());
+
+    reader.close();
+
+    FakeStorageService.addSplitReadStreamResponse(splitResponse);
+
+    readRowsResponses =
+        Lists.newArrayList(ReadRowsResponse.newBuilder().addRows(expectedRows.get(2)).build());
+
+    FakeStorageService.addReadRowsResponses(readRowsResponses);
+
+    reader = residual.createReader(options);
+    assertTrue(reader.start());
+    assertEquals(expectedRows.get(2), reader.getCurrent());
+    assertFalse(reader.advance());
+
+    primary = reader.getCurrentSource();
+    assertEquals(readSession, primary.getReadSession());
+    assertEquals(residualStream.getName(), primary.getStream().getName());
+    assertEquals(1, primary.getStartOffset());
+    assertEquals(StreamOffsetRangeTracker.OFFSET_INFINITY, primary.getStopOffset());
+    assertEquals(SplitDisposition.SELF, primary.getSplitDisposition());
+    assertNull(primary.getSplitPosition());
   }
 }
