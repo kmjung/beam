@@ -19,12 +19,18 @@ package org.apache.beam.sdk.io.gcp.bigquery;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import com.google.api.gax.rpc.ServerStream;
+import com.google.cloud.bigquery.storage.v1alpha1.BigQueryStorageClient;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsRequest;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsResponse;
 import com.google.cloud.bigquery.v3.RowOuterClass.Row;
+import com.google.cloud.bigquery.v3.RowOuterClass.StructType;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
+import javax.annotation.concurrent.GuardedBy;
 import org.apache.beam.sdk.annotations.Experimental;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.io.BoundedSource;
@@ -87,14 +93,8 @@ public class BigQueryStorageStreamSource<T> extends BoundedSource<T> {
   }
 
   @Override
-  public BoundedReader<T> createReader(PipelineOptions pipelineOptions) {
-    return new BigQueryStorageStreamReader<>(
-        readSession,
-        streamPosition,
-        parseFn,
-        this,
-        bqServices,
-        pipelineOptions.as(BigQueryOptions.class));
+  public BoundedReader<T> createReader(PipelineOptions pipelineOptions) throws IOException {
+    return new BigQueryStorageStreamReader<>(this, pipelineOptions.as(BigQueryOptions.class));
   }
 
   @Override
@@ -106,30 +106,25 @@ public class BigQueryStorageStreamSource<T> extends BoundedSource<T> {
   @Experimental(Experimental.Kind.SOURCE_SINK)
   static class BigQueryStorageStreamReader<T> extends BoundedReader<T> {
 
-    private Storage.ReadSession readSession;
-    private final BigQueryServices client;
-    private Iterator<Storage.ReadRowsResponse> responseIterator;
+    private final BigQueryStorageClient client;
+    private final SerializableFunction<SchemaAndRowProto, T> parseFn;
+    private final StructType schema;
+
+    @GuardedBy("this")
+    private BigQueryStorageStreamSource<T> currentSource;
+
+    // These objects can only be accessed by the reader thread.
+    private ServerStream<ReadRowsResponse> responseStream;
+    private Iterator<ReadRowsResponse> responseIterator;
     private Iterator<Row> rowIterator;
-    private final Storage.ReadRowsRequest request;
-    private SerializableFunction<SchemaAndRowProto, T> parseFn;
-    private BoundedSource<T> source;
-    private BigQueryOptions options;
-    private Row currentRow;
+    private T currentRecord;
 
-    BigQueryStorageStreamReader(
-        Storage.ReadSession readSession,
-        Storage.StreamPosition streamPosition,
-        SerializableFunction<SchemaAndRowProto, T> parseFn,
-        BoundedSource<T> source,
-        BigQueryServices client,
-        BigQueryOptions options) {
-      this.readSession = checkNotNull(readSession, "readSession");
-      this.client = checkNotNull(client, "client");
-      this.parseFn = checkNotNull(parseFn, "parseFn");
-      this.source = checkNotNull(source, "source");
-      this.options = options;
-
-      this.request = Storage.ReadRowsRequest.newBuilder().setReadPosition(streamPosition).build();
+    BigQueryStorageStreamReader(BigQueryStorageStreamSource<T> source, BigQueryOptions options)
+        throws IOException {
+      this.currentSource = source;
+      this.client = source.bqServices.getStorageClient(options);
+      this.parseFn = source.parseFn;
+      this.schema = source.readSession.getProjectedSchema();
     }
 
     /**
@@ -139,39 +134,50 @@ public class BigQueryStorageStreamSource<T> extends BoundedSource<T> {
      */
     @Override
     public boolean start() throws IOException {
-      responseIterator = client.getTableReadService(options).readRows(request);
-      return advance();
+      BigQueryStorageStreamSource<T> source = getCurrentSource();
+      LOG.info("Starting reader {} from source {}", this, source);
+      ReadRowsRequest request =
+          ReadRowsRequest.newBuilder().setReadPosition(source.streamPosition).build();
+      responseStream = client.readRowsCallable().call(request);
+      responseIterator = responseStream.iterator();
+      return readNextRow();
     }
 
     @Override
     public boolean advance() {
-      if (rowIterator == null || !rowIterator.hasNext()) {
+      return readNextRow();
+    }
+
+    private boolean readNextRow() {
+      while (rowIterator == null || !rowIterator.hasNext()) {
         if (!responseIterator.hasNext()) {
-          currentRow = null;
+          responseStream = null;
           return false;
         }
-        rowIterator = responseIterator.next().getRowsList().iterator();
+        ReadRowsResponse nextResponse = responseIterator.next();
+        rowIterator = nextResponse.getRowsList().iterator();
       }
-      currentRow = rowIterator.next();
+
+      Row nextRow = rowIterator.next();
+      currentRecord = parseFn.apply(new SchemaAndRowProto(schema, nextRow));
       return true;
     }
 
     @Override
     public T getCurrent() {
-      if (currentRow == null) {
-        return null;
-      }
-      return parseFn.apply(new SchemaAndRowProto(readSession.getProjectedSchema(), currentRow));
+      return currentRecord;
     }
 
     @Override
     public void close() {
-      // Do nothing.
+      if (responseStream != null) {
+        responseStream.cancel();
+      }
     }
 
     @Override
-    public BoundedSource<T> getCurrentSource() {
-      return source;
+    public synchronized BigQueryStorageStreamSource<T> getCurrentSource() {
+      return currentSource;
     }
   }
 }

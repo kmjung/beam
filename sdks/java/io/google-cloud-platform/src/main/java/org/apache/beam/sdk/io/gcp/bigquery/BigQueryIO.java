@@ -33,6 +33,7 @@ import com.google.api.services.bigquery.model.TableRow;
 import com.google.api.services.bigquery.model.TableSchema;
 import com.google.api.services.bigquery.model.TimePartitioning;
 import com.google.auto.value.AutoValue;
+import com.google.cloud.bigquery.storage.v1alpha1.BigQueryStorageClient;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.MoreObjects;
@@ -71,7 +72,6 @@ import org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.TableSpecToTableRef;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.TimePartitioningToJson;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.DatasetService;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.JobService;
-import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.TableReadService;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQuerySourceBase.ExtractResult;
 import org.apache.beam.sdk.io.gcp.bigquery.DynamicDestinationsHelpers.ConstantSchemaDestinations;
 import org.apache.beam.sdk.io.gcp.bigquery.DynamicDestinationsHelpers.ConstantTimePartitioningDestinations;
@@ -1079,11 +1079,11 @@ public class BigQueryIO {
                           BigQueryOptions bqOptions = options.as(BigQueryOptions.class);
                           TableReference queryResultTable =
                               BigQueryHelpers.fromJsonString(c.element(), TableReference.class);
-                          TableReadService tableReadService =
-                              getBigQueryServices().getTableReadService(bqOptions);
+                          BigQueryStorageClient client =
+                              getBigQueryServices().getStorageClient(bqOptions);
                           Storage.ReadSession readSession =
                               BigQueryHelpers.createReadSession(
-                                  tableReadService, queryResultTable, 0, getReadSessionOptions());
+                                  client, queryResultTable, 0, getReadSessionOptions());
                           c.output(readSessionTag, readSession);
                           for (Storage.Stream stream : readSession.getStreamsList()) {
                             c.output(Storage.StreamPosition.newBuilder().setStream(stream).build());

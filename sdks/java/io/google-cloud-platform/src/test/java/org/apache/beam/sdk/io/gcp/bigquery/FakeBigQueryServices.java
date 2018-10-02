@@ -19,6 +19,7 @@ package org.apache.beam.sdk.io.gcp.bigquery;
 
 import com.google.api.client.util.Base64;
 import com.google.api.services.bigquery.model.TableRow;
+import com.google.cloud.bigquery.storage.v1alpha1.BigQueryStorageClient;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -32,7 +33,6 @@ import org.apache.beam.sdk.coders.ListCoder;
 public class FakeBigQueryServices implements BigQueryServices {
   private JobService jobService;
   private FakeDatasetService datasetService;
-  private TableReadService tableReadService;
 
   public FakeBigQueryServices withJobService(JobService jobService) {
     this.jobService = jobService;
@@ -41,11 +41,6 @@ public class FakeBigQueryServices implements BigQueryServices {
 
   public FakeBigQueryServices withDatasetService(FakeDatasetService datasetService) {
     this.datasetService = datasetService;
-    return this;
-  }
-
-  FakeBigQueryServices withTableReadService(TableReadService tableReadService) {
-    this.tableReadService = tableReadService;
     return this;
   }
 
@@ -60,8 +55,8 @@ public class FakeBigQueryServices implements BigQueryServices {
   }
 
   @Override
-  public TableReadService getTableReadService(BigQueryOptions options) {
-    return tableReadService;
+  public BigQueryStorageClient getStorageClient(BigQueryOptions options) throws IOException {
+    return FakeStorageService.getClient();
   }
 
   static List<TableRow> rowsFromEncodedQuery(String query) throws IOException {
