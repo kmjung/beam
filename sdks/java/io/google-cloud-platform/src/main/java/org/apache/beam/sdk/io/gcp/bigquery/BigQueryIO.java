@@ -35,6 +35,7 @@ import com.google.api.services.bigquery.model.TimePartitioning;
 import com.google.auto.value.AutoValue;
 import com.google.cloud.bigquery.storage.v1alpha1.BigQueryStorageClient;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadSession;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Predicates;
@@ -1079,11 +1080,13 @@ public class BigQueryIO {
                           BigQueryOptions bqOptions = options.as(BigQueryOptions.class);
                           TableReference queryResultTable =
                               BigQueryHelpers.fromJsonString(c.element(), TableReference.class);
-                          BigQueryStorageClient client =
-                              getBigQueryServices().getStorageClient(bqOptions);
-                          Storage.ReadSession readSession =
-                              BigQueryHelpers.createReadSession(
-                                  client, queryResultTable, 0, getReadSessionOptions());
+                          ReadSession readSession;
+                          try (BigQueryStorageClient client =
+                              getBigQueryServices().getStorageClient(bqOptions)) {
+                            readSession =
+                                BigQueryHelpers.createReadSession(
+                                    client, queryResultTable, 0, getReadSessionOptions());
+                          }
                           c.output(readSessionTag, readSession);
                           for (Storage.Stream stream : readSession.getStreamsList()) {
                             c.output(Storage.StreamPosition.newBuilder().setStream(stream).build());
