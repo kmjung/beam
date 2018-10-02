@@ -24,6 +24,7 @@ import com.google.cloud.bigquery.storage.v1alpha1.BigQueryStorageClient;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsRequest;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsResponse;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.StreamPosition;
 import com.google.cloud.bigquery.v3.RowOuterClass.Row;
 import com.google.cloud.bigquery.v3.RowOuterClass.StructType;
 import com.google.common.collect.ImmutableList;
@@ -44,8 +45,6 @@ import org.slf4j.LoggerFactory;
  */
 @Experimental(Experimental.Kind.SOURCE_SINK)
 public class BigQueryStorageStreamSource<T> extends BoundedSource<T> {
-
-  private static final Logger LOG = LoggerFactory.getLogger(BigQueryStorageStreamSource.class);
 
   static <T> BigQueryStorageStreamSource<T> create(
       BigQueryServices bqServices,
@@ -105,18 +104,25 @@ public class BigQueryStorageStreamSource<T> extends BoundedSource<T> {
   /** Iterates over all rows assigned to a particular reader in a read session. */
   @Experimental(Experimental.Kind.SOURCE_SINK)
   static class BigQueryStorageStreamReader<T> extends BoundedReader<T> {
+    private static final Logger LOG = LoggerFactory.getLogger(BigQueryStorageStreamReader.class);
 
     private final BigQueryStorageClient client;
     private final SerializableFunction<SchemaAndRowProto, T> parseFn;
     private final StructType schema;
+    private final StreamOffsetRangeTracker rangeTracker;
 
     @GuardedBy("this")
     private BigQueryStorageStreamSource<T> currentSource;
+
+    // This value can be read from any thread, although it is only written by the reader thread. The
+    // "volatile" keyword prevents read and write tearing.
+    private volatile long estimatedStreamLength = StreamOffsetRangeTracker.OFFSET_INFINITY;
 
     // These objects can only be accessed by the reader thread.
     private ServerStream<ReadRowsResponse> responseStream;
     private Iterator<ReadRowsResponse> responseIterator;
     private Iterator<Row> rowIterator;
+    private StreamPosition currentPosition;
     private T currentRecord;
 
     BigQueryStorageStreamReader(BigQueryStorageStreamSource<T> source, BigQueryOptions options)
@@ -125,19 +131,26 @@ public class BigQueryStorageStreamSource<T> extends BoundedSource<T> {
       this.client = source.bqServices.getStorageClient(options);
       this.parseFn = source.parseFn;
       this.schema = source.readSession.getProjectedSchema();
+      this.rangeTracker =
+          new StreamOffsetRangeTracker(
+              source.streamPosition.getStream(),
+              0,
+              StreamOffsetRangeTracker.OFFSET_INFINITY,
+              false);
     }
 
-    /**
-     * Empty operation, the table is already open for read.
-     *
-     * @throws IOException on failure
-     */
     @Override
     public boolean start() throws IOException {
+      return (startImpl() && rangeTracker.tryReturnRecordAt(true, currentPosition))
+          || rangeTracker.markDone();
+    }
+
+    private boolean startImpl() {
       BigQueryStorageStreamSource<T> source = getCurrentSource();
       LOG.info("Starting reader {} from source {}", this, source);
+      currentPosition = rangeTracker.getStartPosition();
       ReadRowsRequest request =
-          ReadRowsRequest.newBuilder().setReadPosition(source.streamPosition).build();
+          ReadRowsRequest.newBuilder().setReadPosition(currentPosition).build();
       responseStream = client.readRowsCallable().call(request);
       responseIterator = responseStream.iterator();
       return readNextRow();
@@ -145,6 +158,13 @@ public class BigQueryStorageStreamSource<T> extends BoundedSource<T> {
 
     @Override
     public boolean advance() {
+      return (advanceImpl() && rangeTracker.tryReturnRecordAt(true, currentPosition))
+          || rangeTracker.markDone();
+    }
+
+    private boolean advanceImpl() {
+      currentPosition =
+          currentPosition.toBuilder().setOffset(currentPosition.getOffset() + 1).build();
       return readNextRow();
     }
 
@@ -156,6 +176,9 @@ public class BigQueryStorageStreamSource<T> extends BoundedSource<T> {
         }
         ReadRowsResponse nextResponse = responseIterator.next();
         rowIterator = nextResponse.getRowsList().iterator();
+        if (nextResponse.hasStatus()) {
+          estimatedStreamLength = nextResponse.getStatus().getTotalEstimatedRows();
+        }
       }
 
       Row nextRow = rowIterator.next();
@@ -173,6 +196,12 @@ public class BigQueryStorageStreamSource<T> extends BoundedSource<T> {
       if (responseStream != null) {
         responseStream.cancel();
       }
+      client.close();
+    }
+
+    @Override
+    public Double getFractionConsumed() {
+      return rangeTracker.getOrEstimateFractionConsumed(estimatedStreamLength);
     }
 
     @Override

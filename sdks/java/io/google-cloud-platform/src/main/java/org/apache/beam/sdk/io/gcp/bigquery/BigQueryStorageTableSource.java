@@ -23,7 +23,9 @@ import static com.google.common.base.Preconditions.checkState;
 
 import com.google.api.services.bigquery.model.Table;
 import com.google.api.services.bigquery.model.TableReference;
+import com.google.cloud.bigquery.storage.v1alpha1.BigQueryStorageClient;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadSession;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
@@ -118,12 +120,12 @@ class BigQueryStorageTableSource<T> extends BoundedSource<T> {
       readerCount = MIN_SPLIT_COUNT;
     }
 
-    Storage.ReadSession readSession =
-        BigQueryHelpers.createReadSession(
-            bqServices.getStorageClient(bqOptions),
-            tableReference,
-            readerCount,
-            readSessionOptions);
+    ReadSession readSession;
+    try (BigQueryStorageClient client = bqServices.getStorageClient(bqOptions)) {
+      readSession =
+          BigQueryHelpers.createReadSession(
+              client, tableReference, readerCount, readSessionOptions);
+    }
 
     if (readSession.getStreamsCount() == 0) {
       return ImmutableList.of();
