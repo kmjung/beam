@@ -30,6 +30,7 @@ import com.google.api.services.bigquery.model.TimePartitioning;
 import com.google.cloud.bigquery.storage.v1alpha1.BigQueryStorageClient;
 import com.google.cloud.bigquery.storage.v1alpha1.ReadOptions;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.DataFormat;
 import com.google.cloud.bigquery.v3.TableReferenceProto;
 import com.google.cloud.hadoop.util.ApiErrorExtractor;
 import com.google.common.annotations.VisibleForTesting;
@@ -379,6 +380,16 @@ public class BigQueryHelpers {
       TableReference tableReference,
       int requestedStreams,
       ReadSessionOptions readSessionOptions) {
+    return createReadSession(
+        client, tableReference, requestedStreams, readSessionOptions, DataFormat.ROW_PROTO);
+  }
+
+  static Storage.ReadSession createReadSession(
+      BigQueryStorageClient client,
+      TableReference tableReference,
+      int requestedStreams,
+      ReadSessionOptions readSessionOptions,
+      DataFormat format) {
 
     Storage.CreateReadSessionRequest.Builder requestBuilder =
         Storage.CreateReadSessionRequest.newBuilder()
@@ -387,7 +398,8 @@ public class BigQueryHelpers {
                     .setProjectId(tableReference.getProjectId())
                     .setDatasetId(tableReference.getDatasetId())
                     .setTableId(tableReference.getTableId()))
-            .setRequestedStreams(requestedStreams);
+            .setRequestedStreams(requestedStreams)
+            .setFormat(format);
 
     if (readSessionOptions != null) {
       ReadOptions.TableReadOptions.Builder readOptionsBuilder = null;

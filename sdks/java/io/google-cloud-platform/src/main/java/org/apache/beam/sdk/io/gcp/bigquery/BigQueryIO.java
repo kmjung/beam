@@ -63,6 +63,7 @@ import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
 import org.apache.beam.sdk.extensions.protobuf.ProtoCoder;
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.io.FileSystems;
+import org.apache.beam.sdk.io.Read;
 import org.apache.beam.sdk.io.fs.MoveOptions;
 import org.apache.beam.sdk.io.fs.ResolveOptions;
 import org.apache.beam.sdk.io.fs.ResourceId;
@@ -1000,17 +1001,11 @@ public class BigQueryIO {
 
     private PCollection<T> expandForStorageApiRead(PBegin input) {
 
-      checkArgument(
-          getRowProtoParseFn() != null,
-          "Invalid BigQueryIO.Read: A row proto parseFn is required when using"
-              + " TypedRead.Method.READ");
-
-      checkArgument(
-          getParseFn() == null,
-          "Invalid BigQueryIO.Read: Specifies an Avro parseFn, which only applies when using"
-              + " TypedRead.Method.EXPORT");
-
       Pipeline p = input.getPipeline();
+
+      checkState(
+          getParseFn() != null || getRowProtoParseFn() != null, "A parse function is required");
+
       final Coder<T> coder = inferCoder(p.getCoderRegistry());
 
       // When using Method.READ to read directly from a table, there are no temporary
@@ -1020,11 +1015,22 @@ public class BigQueryIO {
             org.apache.beam.sdk.io.Read.from(
                 BigQueryStorageTableSource.create(
                     getTableProvider(),
+                    getParseFn(),
                     getRowProtoParseFn(),
                     coder,
                     getBigQueryServices(),
                     getReadSessionOptions())));
       }
+
+      checkArgument(
+          getRowProtoParseFn() != null,
+          "Invalid BigQueryIO.Read: A row proto parseFn is required when using"
+              + " TypedRead.Method.READ");
+
+      checkArgument(
+          getParseFn() == null,
+          "Invalid BigQueryIO.Read: Specifies an Avro parseFn, which only applies when using"
+              + " TypedRead.Method.EXPORT");
 
       // When using Method.READ to read the results of a query, the underlying
       // dataset and table must remain live while the data is being read and then be cleaned up
@@ -1111,8 +1117,8 @@ public class BigQueryIO {
                           new DoFn<Stream, T>() {
                             @ProcessElement
                             public void processElement(ProcessContext c) throws Exception {
-                              BigQueryStorageStreamSource<T> source =
-                                  BigQueryStorageStreamSource.create(
+                              BigQueryRowProtoStreamSource<T> source =
+                                  BigQueryRowProtoStreamSource.create(
                                       c.sideInput(readSessionView),
                                       c.element(),
                                       getRowProtoParseFn(),
@@ -1195,6 +1201,11 @@ public class BigQueryIO {
      */
     public TypedRead<T> withCoder(Coder<T> coder) {
       return toBuilder().setCoder(coder).build();
+    }
+
+    @Experimental
+    public TypedRead<T> withMethod(TypedRead.Method method) {
+      return toBuilder().setMethod(method).build();
     }
 
     /**
