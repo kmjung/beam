@@ -24,8 +24,9 @@ import static com.google.common.base.Preconditions.checkState;
 import com.google.api.services.bigquery.model.Table;
 import com.google.api.services.bigquery.model.TableReference;
 import com.google.cloud.bigquery.storage.v1alpha1.BigQueryStorageClient;
-import com.google.cloud.bigquery.storage.v1alpha1.Storage;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.DataFormat;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadSession;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.Stream;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
@@ -39,13 +40,9 @@ import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.beam.sdk.options.ValueProvider.NestedValueProvider;
 import org.apache.beam.sdk.transforms.SerializableFunction;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /** A {@link BoundedSource} for reading BigQuery tables using the BigQuery Storage API. */
 class BigQueryStorageTableSource<T> extends BoundedSource<T> {
-
-  private static final Logger LOG = LoggerFactory.getLogger(BigQueryStorageTableSource.class);
 
   /**
    * The maximum number of readers which will be requested when creating a BigQuery read session as
@@ -67,14 +64,16 @@ class BigQueryStorageTableSource<T> extends BoundedSource<T> {
    */
   public static <T> BigQueryStorageTableSource<T> create(
       ValueProvider<TableReference> tableRefProvider,
-      SerializableFunction<SchemaAndRowProto, T> parseFn,
+      SerializableFunction<SchemaAndRecord, T> avroParseFn,
+      SerializableFunction<SchemaAndRowProto, T> rowProtoParseFn,
       Coder<T> coder,
       BigQueryServices bqServices,
       ReadSessionOptions readSessionOptions) {
     return new BigQueryStorageTableSource<>(
         NestedValueProvider.of(
             checkNotNull(tableRefProvider, "tableRefProvider"), new TableRefToJson()),
-        parseFn,
+        avroParseFn,
+        rowProtoParseFn,
         coder,
         bqServices,
         readSessionOptions);
@@ -82,7 +81,8 @@ class BigQueryStorageTableSource<T> extends BoundedSource<T> {
 
   private final ValueProvider<String> jsonTableRefProvider;
   private final BigQueryServices bqServices;
-  private final SerializableFunction<SchemaAndRowProto, T> parseFn;
+  private final SerializableFunction<SchemaAndRecord, T> avroParseFn;
+  private final SerializableFunction<SchemaAndRowProto, T> rowProtoParseFn;
   private final Coder<T> coder;
   private final BigQueryIO.ReadSessionOptions readSessionOptions;
 
@@ -90,15 +90,24 @@ class BigQueryStorageTableSource<T> extends BoundedSource<T> {
 
   private BigQueryStorageTableSource(
       ValueProvider<String> jsonTableRefProvider,
-      SerializableFunction<SchemaAndRowProto, T> parseFn,
+      SerializableFunction<SchemaAndRecord, T> avroParseFn,
+      SerializableFunction<SchemaAndRowProto, T> rowProtoParseFn,
       Coder<T> coder,
       BigQueryServices bqServices,
       ReadSessionOptions readSessionOptions) {
     this.bqServices = checkNotNull(bqServices, "bqServices");
-    this.parseFn = checkNotNull(parseFn, "parseFn");
+    this.avroParseFn = avroParseFn;
+    this.rowProtoParseFn = rowProtoParseFn;
     this.coder = checkNotNull(coder, "coder");
     this.readSessionOptions = readSessionOptions;
     this.jsonTableRefProvider = checkNotNull(jsonTableRefProvider, "jsonTableRefProvider");
+  }
+
+  @Override
+  public void validate() {
+    checkState(
+        (avroParseFn == null) != (rowProtoParseFn == null),
+        "Exactly one parse function must be specified");
   }
 
   @Override
@@ -122,20 +131,24 @@ class BigQueryStorageTableSource<T> extends BoundedSource<T> {
 
     ReadSession readSession;
     try (BigQueryStorageClient client = bqServices.getStorageClient(bqOptions)) {
+      DataFormat format = (avroParseFn != null) ? DataFormat.AVRO : DataFormat.ROW_PROTO;
       readSession =
           BigQueryHelpers.createReadSession(
-              client, tableReference, readerCount, readSessionOptions);
+              client, tableReference, readerCount, readSessionOptions, format);
     }
 
     if (readSession.getStreamsCount() == 0) {
       return ImmutableList.of();
     }
 
-    Long readSizeBytes = tableSizeBytes / readSession.getStreamsCount();
     List<BoundedSource<T>> sources = new ArrayList<>(readSession.getStreamsCount());
-    for (Storage.Stream stream : readSession.getStreamsList()) {
-      sources.add(
-          BigQueryStorageStreamSource.create(readSession, stream, parseFn, coder, bqServices));
+    for (Stream stream : readSession.getStreamsList()) {
+      BoundedSource<T> source =
+          (avroParseFn != null)
+              ? BigQueryAvroStreamSource.create(readSession, stream, avroParseFn, coder, bqServices)
+              : BigQueryRowProtoStreamSource.create(
+                  readSession, stream, rowProtoParseFn, coder, bqServices);
+      sources.add(source);
     }
 
     return ImmutableList.copyOf(sources);

@@ -37,6 +37,7 @@ import com.google.api.services.bigquery.model.TableRow;
 import com.google.api.services.bigquery.model.TableSchema;
 import com.google.cloud.bigquery.storage.v1alpha1.ReadOptions.TableReadOptions;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.CreateReadSessionRequest;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.DataFormat;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsRequest;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsResponse;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadSession;
@@ -65,8 +66,8 @@ import org.apache.beam.sdk.extensions.protobuf.ProtoCoder;
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.ReadSessionOptions;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.TypedRead.Method;
-import org.apache.beam.sdk.io.gcp.bigquery.BigQueryStorageStreamSource.BigQueryStorageStreamReader;
-import org.apache.beam.sdk.io.gcp.bigquery.BigQueryStorageStreamSource.SplitDisposition;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryRowProtoStreamSource.BigQueryRowProtoStreamReader;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryStreamSourceBase.SplitDisposition;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.ValueProvider;
@@ -263,16 +264,18 @@ public class BigQueryIOStorageApiReadTest {
 
   @Test
   public void testBuildTableSourceWithNullParseFn() {
-    thrown.expect(IllegalArgumentException.class);
-    thrown.expectMessage("A row proto parseFn is required when using TypedRead.Method.READ");
+    thrown.expect(IllegalStateException.class);
+    // thrown.expect(IllegalArgumentException.class);
+    // thrown.expectMessage("A row proto parseFn is required when using TypedRead.Method.READ");
     pipeline.apply(BigQueryIO.readViaRowProto(null).from(DEFAULT_TABLE_REFERENCE_STRING));
     pipeline.run();
   }
 
   @Test
   public void testBuildQuerySourceWithNullParseFn() {
-    thrown.expect(IllegalArgumentException.class);
-    thrown.expectMessage("A row proto parseFn is required when using TypedRead.Method.READ");
+    thrown.expect(IllegalStateException.class);
+    // thrown.expect(IllegalArgumentException.class);
+    // thrown.expectMessage("A row proto parseFn is required when using TypedRead.Method.READ");
     pipeline.apply(BigQueryIO.readViaRowProto(null).fromQuery("SELECT * FROM my_table"));
     pipeline.run();
   }
@@ -375,6 +378,7 @@ public class BigQueryIOStorageApiReadTest {
     BoundedSource<Row> source =
         BigQueryStorageTableSource.create(
             ValueProvider.StaticValueProvider.of(defaultTableReference),
+            null,
             SchemaAndRowProto::getRow,
             ProtoCoder.of(Row.class),
             fakeBigQueryServices,
@@ -391,6 +395,7 @@ public class BigQueryIOStorageApiReadTest {
     BoundedSource<Row> source =
         BigQueryStorageTableSource.create(
             ValueProvider.StaticValueProvider.of(defaultTableReference),
+            null,
             SchemaAndRowProto::getRow,
             ProtoCoder.of(Row.class),
             fakeBigQueryServices,
@@ -411,6 +416,7 @@ public class BigQueryIOStorageApiReadTest {
     BoundedSource<Row> source =
         BigQueryStorageTableSource.create(
             ValueProvider.StaticValueProvider.of(tableReference),
+            null,
             SchemaAndRowProto::getRow,
             ProtoCoder.of(Row.class),
             fakeBigQueryServices,
@@ -455,6 +461,7 @@ public class BigQueryIOStorageApiReadTest {
         CreateReadSessionRequest.newBuilder()
             .setTableReference(defaultTableReferenceProto)
             .setRequestedStreams(expectedStreamCount)
+            .setFormat(DataFormat.ROW_PROTO)
             .build();
 
     ReadSession.Builder sessionBuilder = ReadSession.newBuilder().setName("session");
@@ -467,6 +474,7 @@ public class BigQueryIOStorageApiReadTest {
     BoundedSource<Row> source =
         BigQueryStorageTableSource.create(
             ValueProvider.StaticValueProvider.of(defaultTableReference),
+            null,
             SchemaAndRowProto::getRow,
             ProtoCoder.of(Row.class),
             fakeBigQueryServices,
@@ -490,6 +498,7 @@ public class BigQueryIOStorageApiReadTest {
         CreateReadSessionRequest.newBuilder()
             .setTableReference(defaultTableReferenceProto)
             .setRequestedStreams(1024)
+            .setFormat(DataFormat.ROW_PROTO)
             .build();
 
     ReadSession readSession =
@@ -502,6 +511,7 @@ public class BigQueryIOStorageApiReadTest {
     BoundedSource<Row> source =
         BigQueryStorageTableSource.create(
             ValueProvider.StaticValueProvider.of(tableReference),
+            null,
             SchemaAndRowProto::getRow,
             ProtoCoder.of(Row.class),
             fakeBigQueryServices,
@@ -527,6 +537,7 @@ public class BigQueryIOStorageApiReadTest {
         CreateReadSessionRequest.newBuilder()
             .setTableReference(defaultTableReferenceProto)
             .setRequestedStreams(10)
+            .setFormat(DataFormat.ROW_PROTO)
             .build();
 
     // Return a session with no read locations.
@@ -536,6 +547,7 @@ public class BigQueryIOStorageApiReadTest {
     BoundedSource<Row> source =
         BigQueryStorageTableSource.create(
             ValueProvider.StaticValueProvider.of(defaultTableReference),
+            null,
             SchemaAndRowProto::getRow,
             ProtoCoder.of(Row.class),
             fakeBigQueryServices,
@@ -572,6 +584,7 @@ public class BigQueryIOStorageApiReadTest {
                   .setDatasetId(DEFAULT_DATASET_ID)
                   .setTableId(DEFAULT_TABLE_ID))
           .setRequestedStreams(10)
+          .setFormat(DataFormat.ROW_PROTO)
           .build();
 
   private final ReadRowsRequest defaultReadRowsRequest =
@@ -940,8 +953,8 @@ public class BigQueryIOStorageApiReadTest {
             .addStreams(originalStream)
             .build();
 
-    BigQueryStorageStreamSource<Row> source =
-        BigQueryStorageStreamSource.create(
+    BigQueryRowProtoStreamSource<Row> source =
+        BigQueryRowProtoStreamSource.create(
             readSession,
             originalStream,
             SchemaAndRowProto::getRow,
@@ -980,7 +993,7 @@ public class BigQueryIOStorageApiReadTest {
     FakeStorageService.addReadRowsResponses(readRowsResponses);
 
     BigQueryOptions options = TestPipeline.testingPipelineOptions().as(BigQueryOptions.class);
-    BigQueryStorageStreamReader<Row> reader = source.createReader(options);
+    BigQueryRowProtoStreamReader<Row> reader = source.createReader(options);
     assertTrue(reader.start());
     assertEquals(expectedRows.get(0), reader.getCurrent());
     assertTrue(reader.advance());
@@ -1002,14 +1015,16 @@ public class BigQueryIOStorageApiReadTest {
     StreamPosition expectedSplitPosition =
         StreamPosition.newBuilder().setStream(originalStream).setOffset(1).build();
 
-    BigQueryStorageStreamSource<Row> residual = reader.splitAtFraction(0.9);
+    BigQueryRowProtoStreamSource<Row> residual =
+        (BigQueryRowProtoStreamSource<Row>) reader.splitAtFraction(0.9);
     assertNotNull(residual);
     assertEquals(readSession, residual.getReadSession());
     assertEquals(originalStream, residual.getStream());
     assertEquals(SplitDisposition.RESIDUAL, residual.getSplitDisposition());
     assertEquals(expectedSplitPosition, residual.getSplitPosition());
 
-    BigQueryStorageStreamSource<Row> primary = reader.getCurrentSource();
+    BigQueryRowProtoStreamSource<Row> primary =
+        (BigQueryRowProtoStreamSource<Row>) reader.getCurrentSource();
     assertEquals(readSession, residual.getReadSession());
     assertEquals(originalStream, primary.getStream());
     assertEquals(SplitDisposition.PRIMARY, primary.getSplitDisposition());
@@ -1017,7 +1032,7 @@ public class BigQueryIOStorageApiReadTest {
 
     assertTrue(reader.advance());
 
-    primary = reader.getCurrentSource();
+    primary = (BigQueryRowProtoStreamSource<Row>) reader.getCurrentSource();
     assertEquals(readSession, primary.getReadSession());
     assertEquals(primaryStream.getName(), primary.getStream().getName());
     assertEquals(SplitDisposition.SELF, primary.getSplitDisposition());
@@ -1033,7 +1048,7 @@ public class BigQueryIOStorageApiReadTest {
     reader = residual.createReader(options);
     assertFalse(reader.start());
 
-    residual = reader.getCurrentSource();
+    residual = (BigQueryRowProtoStreamSource<Row>) reader.getCurrentSource();
     assertEquals(readSession, residual.getReadSession());
     assertEquals(residualStream, residual.getStream());
     assertEquals(0, residual.getStartOffset());
@@ -1055,8 +1070,8 @@ public class BigQueryIOStorageApiReadTest {
             .addStreams(originalStream)
             .build();
 
-    BigQueryStorageStreamSource<Row> source =
-        BigQueryStorageStreamSource.create(
+    BigQueryRowProtoStreamSource<Row> source =
+        BigQueryRowProtoStreamSource.create(
             readSession,
             originalStream,
             SchemaAndRowProto::getRow,
@@ -1095,7 +1110,7 @@ public class BigQueryIOStorageApiReadTest {
     FakeStorageService.addReadRowsResponses(readRowsResponses);
 
     BigQueryOptions options = TestPipeline.testingPipelineOptions().as(BigQueryOptions.class);
-    BigQueryStorageStreamReader<Row> reader = source.createReader(options);
+    BigQueryRowProtoStreamReader<Row> reader = source.createReader(options);
     assertTrue(reader.start());
     assertEquals(expectedRows.get(0), reader.getCurrent());
     assertTrue(reader.advance());
@@ -1117,14 +1132,16 @@ public class BigQueryIOStorageApiReadTest {
 
     FakeStorageService.addReadRowsResponses(readRowsResponses);
 
-    BigQueryStorageStreamSource<Row> residual = reader.splitAtFraction(0.9);
+    BigQueryRowProtoStreamSource<Row> residual =
+        (BigQueryRowProtoStreamSource<Row>) reader.splitAtFraction(0.9);
     assertNotNull(residual);
     assertEquals(readSession, residual.getReadSession());
     assertEquals(originalStream, residual.getStream());
     assertEquals(SplitDisposition.RESIDUAL, residual.getSplitDisposition());
     assertEquals(expectedSplitPosition, residual.getSplitPosition());
 
-    BigQueryStorageStreamSource<Row> primary = reader.getCurrentSource();
+    BigQueryRowProtoStreamSource<Row> primary =
+        (BigQueryRowProtoStreamSource<Row>) reader.getCurrentSource();
     assertEquals(readSession, primary.getReadSession());
     assertEquals(originalStream, primary.getStream());
     assertEquals(SplitDisposition.PRIMARY, primary.getSplitDisposition());
@@ -1132,7 +1149,7 @@ public class BigQueryIOStorageApiReadTest {
 
     assertFalse(reader.advance());
 
-    primary = reader.getCurrentSource();
+    primary = (BigQueryRowProtoStreamSource<Row>) reader.getCurrentSource();
     assertEquals(readSession, primary.getReadSession());
     assertEquals(originalStream, primary.getStream());
     assertEquals(0L, primary.getStartOffset());
@@ -1154,7 +1171,7 @@ public class BigQueryIOStorageApiReadTest {
     assertEquals(expectedRows.get(2), reader.getCurrent());
     assertFalse(reader.advance());
 
-    primary = reader.getCurrentSource();
+    primary = (BigQueryRowProtoStreamSource<Row>) reader.getCurrentSource();
     assertEquals(readSession, primary.getReadSession());
     assertEquals(residualStream.getName(), primary.getStream().getName());
     assertEquals(1, primary.getStartOffset());

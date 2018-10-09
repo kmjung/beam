@@ -19,7 +19,6 @@ package org.apache.beam.examples;
 
 import org.apache.beam.examples.BigQueryWordCount.BigQueryWordCountOptions;
 import org.apache.beam.examples.BigQueryWordCount.BigQueryWordCountOptions.PipelineType;
-import org.apache.beam.examples.BigQueryWordCount.BigQueryWordCountOptions.ReadMode;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.testing.TestPipeline;
 import org.apache.beam.sdk.testing.TestPipelineOptions;
@@ -32,9 +31,7 @@ import org.junit.runners.JUnit4;
 @RunWith(JUnit4.class)
 public class BigQueryWordCountIT {
 
-  private static final ReadMode DEFAULT_READ_MODE = ReadMode.READ_FROM_TABLE;
-
-  private static final PipelineType DEFAULT_PIPELINE_TYPE = PipelineType.READ_FULL_ROWS;
+  private static final PipelineType DEFAULT_PIPELINE_TYPE = PipelineType.READ_AND_FILTER;
 
   /** Options for the BigQuery word count integration test. */
   public interface BigQueryWordCountITOptions
@@ -49,7 +46,6 @@ public class BigQueryWordCountIT {
   public void testE2EBQWordCount() throws Exception {
     BigQueryWordCountOptions options =
         TestPipeline.testingPipelineOptions().as(BigQueryWordCountOptions.class);
-    options.setReadMode(DEFAULT_READ_MODE);
     options.setPipelineType(DEFAULT_PIPELINE_TYPE);
     BigQueryWordCount.runBQWordCount(options);
   }
