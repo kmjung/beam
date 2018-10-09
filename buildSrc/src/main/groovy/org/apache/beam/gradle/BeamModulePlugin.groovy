@@ -322,7 +322,7 @@ class BeamModulePlugin implements Plugin<Project> {
     def kafka_version = "1.0.0"
     def quickcheck_version = "0.8"
     def google_cloud_core_version = "1.36.0"
-    def google_cloud_bigquery_storage_version = "0.0.4"
+    def google_cloud_bigquery_storage_version = "0.0.5"
 
     // A map of maps containing common libraries used per language. To use:
     // dependencies {
