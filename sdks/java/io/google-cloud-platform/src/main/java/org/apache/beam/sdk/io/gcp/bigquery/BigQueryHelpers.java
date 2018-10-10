@@ -29,6 +29,7 @@ import com.google.api.services.bigquery.model.TableSchema;
 import com.google.api.services.bigquery.model.TimePartitioning;
 import com.google.cloud.bigquery.storage.v1alpha1.ReadOptions;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.DataFormat;
 import com.google.cloud.bigquery.v3.TableReferenceProto;
 import com.google.cloud.hadoop.util.ApiErrorExtractor;
 import com.google.common.annotations.VisibleForTesting;
@@ -44,6 +45,8 @@ import javax.annotation.Nullable;
 import org.apache.beam.sdk.io.FileSystems;
 import org.apache.beam.sdk.io.fs.ResolveOptions;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.ReadSessionOptions;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.TypedRead;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.TypedRead.Format;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.DatasetService;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.JobService;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.TableReadService;
@@ -378,7 +381,8 @@ public class BigQueryHelpers {
       TableReadService client,
       TableReference tableReference,
       int requestedStreams,
-      ReadSessionOptions readSessionOptions) {
+      ReadSessionOptions readSessionOptions,
+      TypedRead.Format format) {
 
     Storage.CreateReadSessionRequest.Builder requestBuilder =
         Storage.CreateReadSessionRequest.newBuilder()
@@ -387,7 +391,8 @@ public class BigQueryHelpers {
                     .setProjectId(tableReference.getProjectId())
                     .setDatasetId(tableReference.getDatasetId())
                     .setTableId(tableReference.getTableId()))
-            .setRequestedStreams(requestedStreams);
+            .setRequestedStreams(requestedStreams)
+            .setFormat(format == Format.ROW_PROTO ? DataFormat.ROW_PROTO : DataFormat.AVRO);
 
     if (readSessionOptions != null) {
       ReadOptions.TableReadOptions.Builder readOptionsBuilder = null;

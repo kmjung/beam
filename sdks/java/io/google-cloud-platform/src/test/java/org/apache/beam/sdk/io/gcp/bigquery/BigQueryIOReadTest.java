@@ -305,8 +305,7 @@ public class BigQueryIOReadTest implements Serializable {
   public void testBuildSourceWithReadSessionOptions() {
     thrown.expect(IllegalArgumentException.class);
     thrown.expectMessage(
-        "Invalid BigQueryIO.Read: Specifies read session options, which only apply when using"
-            + " TypedRead.Method.READ");
+        "Invalid BigQueryIO.Read: read session options may not be specified with method EXPORT");
     p.apply(
         BigQueryIO.read(SerializableFunctions.identity())
             .from("foo.com:project:somedataset.sometable")
