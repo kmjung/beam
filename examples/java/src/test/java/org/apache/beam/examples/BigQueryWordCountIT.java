@@ -17,8 +17,13 @@
  */
 package org.apache.beam.examples;
 
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.apache.beam.examples.BigQueryWordCount.BigQueryWordCountOptions;
 import org.apache.beam.examples.BigQueryWordCount.BigQueryWordCountOptions.PipelineType;
+import org.apache.beam.examples.BigQueryWordCountIT.ParallelParameterized;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.testing.TestPipeline;
 import org.apache.beam.sdk.testing.TestPipelineOptions;
@@ -28,10 +33,43 @@ import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 import org.junit.runners.Parameterized.Parameter;
 import org.junit.runners.Parameterized.Parameters;
+import org.junit.runners.model.RunnerScheduler;
 
 /** End-to-end integration tests of {@link BigQueryWordCount}. */
-@RunWith(Parameterized.class)
+@RunWith(ParallelParameterized.class)
 public class BigQueryWordCountIT {
+
+  /** JUnit execution configuration to allow parallel execution of parameterized tests. */
+  public static class ParallelParameterized extends Parameterized {
+
+    private static final int MAX_PARALLEL_TESTS = 10;
+
+    public ParallelParameterized(Class<?> testClass) throws Throwable {
+      super(testClass);
+      setScheduler(createScheduler());
+    }
+
+    private RunnerScheduler createScheduler() {
+      return new RunnerScheduler() {
+        private final ExecutorService service = Executors.newFixedThreadPool(MAX_PARALLEL_TESTS);
+
+        @Override
+        public void schedule(Runnable childStatement) {
+          Future<?> possiblyIgnoredError = service.submit(childStatement);
+        }
+
+        @Override
+        public void finished() {
+          try {
+            service.shutdown();
+            service.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
+          } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+          }
+        }
+      };
+    }
+  }
 
   /** Options for the BigQuery word count integration test. */
   public interface BigQueryWordCountITOptions
