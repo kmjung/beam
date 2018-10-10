@@ -19,22 +19,19 @@ package org.apache.beam.examples;
 
 import org.apache.beam.examples.BigQueryWordCount.BigQueryWordCountOptions;
 import org.apache.beam.examples.BigQueryWordCount.BigQueryWordCountOptions.PipelineType;
-import org.apache.beam.examples.BigQueryWordCount.BigQueryWordCountOptions.ReadMode;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.testing.TestPipeline;
 import org.apache.beam.sdk.testing.TestPipelineOptions;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.junit.runners.JUnit4;
+import org.junit.runners.Parameterized;
+import org.junit.runners.Parameterized.Parameter;
+import org.junit.runners.Parameterized.Parameters;
 
-/** End-to-end integration test of {@link BigQueryWordCount}. */
-@RunWith(JUnit4.class)
+/** End-to-end integration tests of {@link BigQueryWordCount}. */
+@RunWith(Parameterized.class)
 public class BigQueryWordCountIT {
-
-  private static final ReadMode DEFAULT_READ_MODE = ReadMode.READ_FROM_TABLE;
-
-  private static final PipelineType DEFAULT_PIPELINE_TYPE = PipelineType.READ_FULL_ROWS;
 
   /** Options for the BigQuery word count integration test. */
   public interface BigQueryWordCountITOptions
@@ -45,12 +42,27 @@ public class BigQueryWordCountIT {
     PipelineOptionsFactory.register(TestPipelineOptions.class);
   }
 
+  @Parameters
+  public static Object[] data() {
+    return new Object[] {
+      PipelineType.EXPORT_TABLE_DATA,
+      PipelineType.EXPORT_QUERY_RESULTS,
+      PipelineType.READ_TABLE_DATA,
+      PipelineType.READ_TABLE_DATA_AND_FILTER,
+      PipelineType.READ_QUERY_RESULTS,
+      PipelineType.READ_TABLE_DATA_AS_ROW_PROTO,
+      PipelineType.READ_TABLE_DATA_AS_ROW_PROTO_AND_FILTER,
+      PipelineType.READ_QUERY_RESULTS_AS_ROW_PROTO,
+    };
+  }
+
+  @Parameter public PipelineType pipelineType;
+
   @Test
   public void testE2EBQWordCount() throws Exception {
     BigQueryWordCountOptions options =
         TestPipeline.testingPipelineOptions().as(BigQueryWordCountOptions.class);
-    options.setReadMode(DEFAULT_READ_MODE);
-    options.setPipelineType(DEFAULT_PIPELINE_TYPE);
+    options.setPipelineType(pipelineType);
     BigQueryWordCount.runBQWordCount(options);
   }
 }
