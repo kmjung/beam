@@ -67,8 +67,8 @@ import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.ReadSessionOptions;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.TypedRead.Format;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.TypedRead.Method;
-import org.apache.beam.sdk.io.gcp.bigquery.BigQueryStorageStreamSource.BigQueryStorageStreamReader;
-import org.apache.beam.sdk.io.gcp.bigquery.BigQueryStorageStreamSource.SplitDisposition;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryRowProtoStreamSource.BigQueryRowProtoStreamReader;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryStreamSourceBase.SplitDisposition;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.ValueProvider;
@@ -960,8 +960,8 @@ public class BigQueryIOStorageApiReadTest {
             .addStreams(originalStream)
             .build();
 
-    BigQueryStorageStreamSource<Row> source =
-        BigQueryStorageStreamSource.create(
+    BigQueryRowProtoStreamSource<Row> source =
+        BigQueryRowProtoStreamSource.create(
             readSession,
             originalStream,
             SchemaAndRowProto::getRow,
@@ -1000,7 +1000,7 @@ public class BigQueryIOStorageApiReadTest {
     FakeStorageService.addReadRowsResponses(readRowsResponses);
 
     BigQueryOptions options = TestPipeline.testingPipelineOptions().as(BigQueryOptions.class);
-    BigQueryStorageStreamReader<Row> reader = source.createReader(options);
+    BigQueryRowProtoStreamReader<Row> reader = source.createReader(options);
     assertTrue(reader.start());
     assertEquals(expectedRows.get(0), reader.getCurrent());
     assertTrue(reader.advance());
@@ -1022,14 +1022,16 @@ public class BigQueryIOStorageApiReadTest {
     StreamPosition expectedSplitPosition =
         StreamPosition.newBuilder().setStream(originalStream).setOffset(1).build();
 
-    BigQueryStorageStreamSource<Row> residual = reader.splitAtFraction(0.9);
+    BigQueryRowProtoStreamSource<Row> residual =
+        (BigQueryRowProtoStreamSource<Row>) reader.splitAtFraction(0.9);
     assertNotNull(residual);
     assertEquals(readSession, residual.getReadSession());
     assertEquals(originalStream, residual.getStream());
     assertEquals(SplitDisposition.RESIDUAL, residual.getSplitDisposition());
     assertEquals(expectedSplitPosition, residual.getSplitPosition());
 
-    BigQueryStorageStreamSource<Row> primary = reader.getCurrentSource();
+    BigQueryRowProtoStreamSource<Row> primary =
+        (BigQueryRowProtoStreamSource<Row>) reader.getCurrentSource();
     assertEquals(readSession, residual.getReadSession());
     assertEquals(originalStream, primary.getStream());
     assertEquals(SplitDisposition.PRIMARY, primary.getSplitDisposition());
@@ -1037,7 +1039,7 @@ public class BigQueryIOStorageApiReadTest {
 
     assertTrue(reader.advance());
 
-    primary = reader.getCurrentSource();
+    primary = (BigQueryRowProtoStreamSource<Row>) reader.getCurrentSource();
     assertEquals(readSession, primary.getReadSession());
     assertEquals(primaryStream.getName(), primary.getStream().getName());
     assertEquals(SplitDisposition.SELF, primary.getSplitDisposition());
@@ -1053,7 +1055,7 @@ public class BigQueryIOStorageApiReadTest {
     reader = residual.createReader(options);
     assertFalse(reader.start());
 
-    residual = reader.getCurrentSource();
+    residual = (BigQueryRowProtoStreamSource<Row>) reader.getCurrentSource();
     assertEquals(readSession, residual.getReadSession());
     assertEquals(residualStream, residual.getStream());
     assertEquals(0, residual.getStartOffset());
@@ -1075,8 +1077,8 @@ public class BigQueryIOStorageApiReadTest {
             .addStreams(originalStream)
             .build();
 
-    BigQueryStorageStreamSource<Row> source =
-        BigQueryStorageStreamSource.create(
+    BigQueryRowProtoStreamSource<Row> source =
+        BigQueryRowProtoStreamSource.create(
             readSession,
             originalStream,
             SchemaAndRowProto::getRow,
@@ -1115,7 +1117,7 @@ public class BigQueryIOStorageApiReadTest {
     FakeStorageService.addReadRowsResponses(readRowsResponses);
 
     BigQueryOptions options = TestPipeline.testingPipelineOptions().as(BigQueryOptions.class);
-    BigQueryStorageStreamReader<Row> reader = source.createReader(options);
+    BigQueryRowProtoStreamReader<Row> reader = source.createReader(options);
     assertTrue(reader.start());
     assertEquals(expectedRows.get(0), reader.getCurrent());
     assertTrue(reader.advance());
@@ -1137,14 +1139,16 @@ public class BigQueryIOStorageApiReadTest {
 
     FakeStorageService.addReadRowsResponses(readRowsResponses);
 
-    BigQueryStorageStreamSource<Row> residual = reader.splitAtFraction(0.9);
+    BigQueryRowProtoStreamSource<Row> residual =
+        (BigQueryRowProtoStreamSource<Row>) reader.splitAtFraction(0.9);
     assertNotNull(residual);
     assertEquals(readSession, residual.getReadSession());
     assertEquals(originalStream, residual.getStream());
     assertEquals(SplitDisposition.RESIDUAL, residual.getSplitDisposition());
     assertEquals(expectedSplitPosition, residual.getSplitPosition());
 
-    BigQueryStorageStreamSource<Row> primary = reader.getCurrentSource();
+    BigQueryRowProtoStreamSource<Row> primary =
+        (BigQueryRowProtoStreamSource<Row>) reader.getCurrentSource();
     assertEquals(readSession, primary.getReadSession());
     assertEquals(originalStream, primary.getStream());
     assertEquals(SplitDisposition.PRIMARY, primary.getSplitDisposition());
@@ -1152,7 +1156,7 @@ public class BigQueryIOStorageApiReadTest {
 
     assertFalse(reader.advance());
 
-    primary = reader.getCurrentSource();
+    primary = (BigQueryRowProtoStreamSource<Row>) reader.getCurrentSource();
     assertEquals(readSession, primary.getReadSession());
     assertEquals(originalStream, primary.getStream());
     assertEquals(0L, primary.getStartOffset());
@@ -1174,7 +1178,7 @@ public class BigQueryIOStorageApiReadTest {
     assertEquals(expectedRows.get(2), reader.getCurrent());
     assertFalse(reader.advance());
 
-    primary = reader.getCurrentSource();
+    primary = (BigQueryRowProtoStreamSource<Row>) reader.getCurrentSource();
     assertEquals(readSession, primary.getReadSession());
     assertEquals(residualStream.getName(), primary.getStream().getName());
     assertEquals(1, primary.getStartOffset());

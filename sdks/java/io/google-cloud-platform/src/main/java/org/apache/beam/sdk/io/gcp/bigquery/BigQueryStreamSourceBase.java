@@ -95,6 +95,27 @@ abstract class BigQueryStreamSourceBase<InputT, OutputT> extends BoundedSource<O
     return readSession;
   }
 
+  protected Stream getStream() {
+    return stream;
+  }
+
+  protected long getStartOffset() {
+    return startOffset;
+  }
+
+  protected long getStopOffset() {
+    return stopOffset;
+  }
+
+  protected SplitDisposition getSplitDisposition() {
+    return splitDisposition;
+  }
+
+  @Nullable
+  protected StreamPosition getSplitPosition() {
+    return splitPosition;
+  }
+
   protected SerializableFunction<InputT, OutputT> getParseFn() {
     return parseFn;
   }
