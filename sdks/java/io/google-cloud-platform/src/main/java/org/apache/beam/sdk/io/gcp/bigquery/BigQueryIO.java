@@ -20,14 +20,17 @@ package org.apache.beam.sdk.io.gcp.bigquery;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.createJobIdToken;
+import static org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.fromJsonString;
 import static org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.getExtractJobId;
 import static org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.resolveTempLocation;
+import static org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.toJsonString;
 
 import com.google.api.client.json.JsonFactory;
 import com.google.api.services.bigquery.model.Job;
 import com.google.api.services.bigquery.model.JobConfigurationQuery;
 import com.google.api.services.bigquery.model.JobReference;
 import com.google.api.services.bigquery.model.JobStatistics;
+import com.google.api.services.bigquery.model.Table;
 import com.google.api.services.bigquery.model.TableReference;
 import com.google.api.services.bigquery.model.TableRow;
 import com.google.api.services.bigquery.model.TableSchema;
@@ -963,7 +966,7 @@ public class BigQueryIO {
                                     getQueryLocation());
                             TableReference queryResultTable =
                                 queryHelper.createTableAndExecuteQuery(options);
-                            c.output(BigQueryHelpers.toJsonString(queryResultTable));
+                            c.output(toJsonString(queryResultTable));
                           }
                         }));
 
@@ -971,6 +974,7 @@ public class BigQueryIO {
 
         final TupleTag<ReadSession> readSessionTag = new TupleTag<>();
         final TupleTag<Stream> streamTag = new TupleTag<>();
+        final TupleTag<String> jsonTableSchemaTag = new TupleTag<>();
 
         PCollectionTuple tuple =
             queryResultTableCollection.apply(
@@ -983,6 +987,21 @@ public class BigQueryIO {
                                 c.getPipelineOptions().as(BigQueryOptions.class);
                             TableReference queryResultTable =
                                 BigQueryHelpers.fromJsonString(c.element(), TableReference.class);
+                            List<String> selectedFields = null;
+                            if (getReadSessionOptions() != null) {
+                              selectedFields = getReadSessionOptions().getSelectedFields();
+                            }
+
+                            Table table =
+                                getBigQueryServices()
+                                    .getDatasetService(options)
+                                    .getTable(queryResultTable, selectedFields);
+
+                            if (table == null) {
+                              throw new IllegalStateException(
+                                  String.format("Table %s was not found", queryResultTable));
+                            }
+
                             ReadSession readSession;
                             try (TableReadService client =
                                 getBigQueryServices().getTableReadService(options)) {
@@ -994,19 +1013,25 @@ public class BigQueryIO {
                                       getReadSessionOptions(),
                                       getFormat());
                             }
+
+                            c.output(jsonTableSchemaTag, toJsonString(table.getSchema()));
                             c.output(readSessionTag, readSession);
                             for (Stream stream : readSession.getStreamsList()) {
                               c.output(stream);
                             }
                           }
                         })
-                    .withOutputTags(streamTag, TupleTagList.of(readSessionTag)));
+                    .withOutputTags(
+                        streamTag, TupleTagList.of(readSessionTag).and(jsonTableSchemaTag)));
 
         tuple.get(readSessionTag).setCoder(ProtoCoder.of(ReadSession.class));
         tuple.get(streamTag).setCoder(ProtoCoder.of(Stream.class));
+        tuple.get(jsonTableSchemaTag).setCoder(StringUtf8Coder.of());
 
         final PCollectionView<ReadSession> readSessionView =
             tuple.get(readSessionTag).apply("ViewReadSession", View.asSingleton());
+        final PCollectionView<String> jsonTableSchemaView =
+            tuple.get(jsonTableSchemaTag).apply("ViewTableSchema", View.asSingleton());
 
         PCollection<T> rows =
             tuple
@@ -1018,6 +1043,9 @@ public class BigQueryIO {
                             new DoFn<Stream, T>() {
                               @ProcessElement
                               public void processElement(ProcessContext c) throws Exception {
+                                TableSchema tableSchema =
+                                    fromJsonString(
+                                        c.sideInput(jsonTableSchemaView), TableSchema.class);
                                 ReadSession readSession = c.sideInput(readSessionView);
                                 Stream stream = c.element();
                                 BoundedSource<T> source =
@@ -1031,6 +1059,7 @@ public class BigQueryIO {
                                         : BigQueryAvroStreamSource.create(
                                             readSession,
                                             stream,
+                                            tableSchema,
                                             getParseFn(),
                                             coder,
                                             getBigQueryServices());
@@ -1041,7 +1070,7 @@ public class BigQueryIO {
                                 }
                               }
                             })
-                        .withSideInputs(readSessionView));
+                        .withSideInputs(readSessionView, jsonTableSchemaView));
 
         rows.setCoder(coder);
 
@@ -1102,7 +1131,7 @@ public class BigQueryIO {
                             for (ResourceId file : res.extractedFiles) {
                               c.output(file.toString());
                             }
-                            c.output(tableSchemaTag, BigQueryHelpers.toJsonString(res.schema));
+                            c.output(tableSchemaTag, toJsonString(res.schema));
                           }
                         })
                     .withOutputTags(filesTag, TupleTagList.of(tableSchemaTag)));
@@ -1672,7 +1701,7 @@ public class BigQueryIO {
      */
     public Write<T> withSchema(TableSchema schema) {
       checkArgument(schema != null, "schema can not be null");
-      return withJsonSchema(StaticValueProvider.of(BigQueryHelpers.toJsonString(schema)));
+      return withJsonSchema(StaticValueProvider.of(toJsonString(schema)));
     }
 
     /** Same as {@link #withSchema(TableSchema)} but using a deferred {@link ValueProvider}. */
@@ -1716,8 +1745,7 @@ public class BigQueryIO {
      */
     public Write<T> withTimePartitioning(TimePartitioning partitioning) {
       checkArgument(partitioning != null, "partitioning can not be null");
-      return withJsonTimePartitioning(
-          StaticValueProvider.of(BigQueryHelpers.toJsonString(partitioning)));
+      return withJsonTimePartitioning(StaticValueProvider.of(toJsonString(partitioning)));
     }
 
     /**
@@ -2138,8 +2166,7 @@ public class BigQueryIO {
         TableReference tableRef = table.get();
         tableRef.setProjectId(bqOptions.getProject());
         return NestedValueProvider.of(
-            StaticValueProvider.of(BigQueryHelpers.toJsonString(tableRef)),
-            new JsonTableRefToTableRef());
+            StaticValueProvider.of(toJsonString(tableRef)), new JsonTableRefToTableRef());
       }
       return table;
     }

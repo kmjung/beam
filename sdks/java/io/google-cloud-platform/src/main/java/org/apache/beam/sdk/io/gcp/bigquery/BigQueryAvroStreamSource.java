@@ -17,6 +17,11 @@
  */
 package org.apache.beam.sdk.io.gcp.bigquery;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+import static org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.fromJsonString;
+import static org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.toJsonString;
+
+import com.google.api.services.bigquery.model.TableSchema;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsResponse;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadSession;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.Stream;
@@ -45,6 +50,7 @@ class BigQueryAvroStreamSource<T> extends BigQueryStreamSourceBase<SchemaAndReco
   static <T> BigQueryAvroStreamSource<T> create(
       ReadSession readSession,
       Stream stream,
+      TableSchema tableSchema,
       SerializableFunction<SchemaAndRecord, T> parseFn,
       Coder<T> outputCoder,
       BigQueryServices bqServices) {
@@ -55,10 +61,13 @@ class BigQueryAvroStreamSource<T> extends BigQueryStreamSourceBase<SchemaAndReco
         StreamOffsetRangeTracker.OFFSET_INFINITY,
         SplitDisposition.SELF,
         null,
+        toJsonString(checkNotNull(tableSchema, "tableSchema")),
         parseFn,
         outputCoder,
         bqServices);
   }
+
+  private final String jsonTableSchema;
 
   private BigQueryAvroStreamSource(
       ReadSession readSession,
@@ -67,6 +76,7 @@ class BigQueryAvroStreamSource<T> extends BigQueryStreamSourceBase<SchemaAndReco
       long stopOffset,
       SplitDisposition splitDisposition,
       @Nullable StreamPosition splitPosition,
+      String jsonTableSchema,
       SerializableFunction<SchemaAndRecord, T> parseFn,
       Coder<T> outputCoder,
       BigQueryServices bqServices) {
@@ -80,6 +90,7 @@ class BigQueryAvroStreamSource<T> extends BigQueryStreamSourceBase<SchemaAndReco
         parseFn,
         outputCoder,
         bqServices);
+    this.jsonTableSchema = checkNotNull(jsonTableSchema, "jsonTableSchema");
   }
 
   @Override
@@ -100,6 +111,7 @@ class BigQueryAvroStreamSource<T> extends BigQueryStreamSourceBase<SchemaAndReco
         stopOffset,
         splitDisposition,
         splitPosition,
+        this.jsonTableSchema,
         parseFn,
         outputCoder,
         bqServices);
@@ -119,6 +131,7 @@ class BigQueryAvroStreamSource<T> extends BigQueryStreamSourceBase<SchemaAndReco
 
     private final SerializableFunction<SchemaAndRecord, T> parseFn;
     private final DatumReader<GenericRecord> datumReader;
+    private final TableSchema tableSchema;
 
     // These objects can only be accessed in the context of the reader thread.
     private BinaryDecoder decoder;
@@ -132,6 +145,7 @@ class BigQueryAvroStreamSource<T> extends BigQueryStreamSourceBase<SchemaAndReco
       this.datumReader =
           new GenericDatumReader<>(
               new Schema.Parser().parse(source.getReadSession().getAvroSchema().getJsonSchema()));
+      this.tableSchema = fromJsonString(source.jsonTableSchema, TableSchema.class);
     }
 
     @Override
@@ -149,8 +163,7 @@ class BigQueryAvroStreamSource<T> extends BigQueryStreamSourceBase<SchemaAndReco
       }
 
       nextRecord = datumReader.read(nextRecord, decoder);
-      // TODO(kmj): Supply the table schema here.
-      currentRecord = parseFn.apply(new SchemaAndRecord(nextRecord, null));
+      currentRecord = parseFn.apply(new SchemaAndRecord(nextRecord, tableSchema));
       return true;
     }
 

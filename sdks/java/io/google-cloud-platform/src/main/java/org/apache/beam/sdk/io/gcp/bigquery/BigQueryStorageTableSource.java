@@ -92,7 +92,7 @@ class BigQueryStorageTableSource<T> extends BoundedSource<T> {
   private final Coder<T> outputCoder;
   private final BigQueryServices bqServices;
 
-  private transient AtomicReference<Long> cachedReadSizeBytes;
+  private transient AtomicReference<Table> cachedTable;
 
   private BigQueryStorageTableSource(
       ValueProvider<String> jsonTableRefProvider,
@@ -109,7 +109,7 @@ class BigQueryStorageTableSource<T> extends BoundedSource<T> {
     this.rowProtoParseFn = rowProtoParseFn;
     this.outputCoder = checkNotNull(outputCoder, "outputCoder");
     this.bqServices = checkNotNull(bqServices, "bqServices");
-    this.cachedReadSizeBytes = new AtomicReference<>();
+    this.cachedTable = new AtomicReference<>();
   }
 
   @Override
@@ -137,19 +137,18 @@ class BigQueryStorageTableSource<T> extends BoundedSource<T> {
       long desiredBundleSizeBytes, PipelineOptions options) throws Exception {
     BigQueryOptions bqOptions = options.as(BigQueryOptions.class);
     TableReference tableReference = getEffectiveTableReference(bqOptions);
-    long tableSizeBytes = getEstimatedSizeBytes(bqOptions);
+    Table table = getTable(tableReference, bqOptions);
+    long tableSizeBytes = 0;
+    if (table != null) {
+      tableSizeBytes = table.getNumBytes();
+    }
+
     int streamCount = 0;
     if (desiredBundleSizeBytes > 0) {
-      streamCount =
-          (tableSizeBytes / desiredBundleSizeBytes) > MAX_SPLIT_COUNT
-              ? MAX_SPLIT_COUNT
-              : (int) (tableSizeBytes / desiredBundleSizeBytes);
+      streamCount = (int) Math.min(tableSizeBytes / desiredBundleSizeBytes, MAX_SPLIT_COUNT);
     }
 
-    if (streamCount < MIN_SPLIT_COUNT) {
-      streamCount = MIN_SPLIT_COUNT;
-    }
-
+    streamCount = Math.max(streamCount, MIN_SPLIT_COUNT);
     ReadSession readSession;
     try (TableReadService client = bqServices.getTableReadService(bqOptions)) {
       readSession =
@@ -170,7 +169,7 @@ class BigQueryStorageTableSource<T> extends BoundedSource<T> {
               ? BigQueryRowProtoStreamSource.create(
                   readSession, stream, rowProtoParseFn, outputCoder, bqServices)
               : BigQueryAvroStreamSource.create(
-                  readSession, stream, avroParseFn, outputCoder, bqServices));
+                  readSession, stream, table.getSchema(), avroParseFn, outputCoder, bqServices));
     }
 
     return ImmutableList.copyOf(sources);
@@ -178,17 +177,14 @@ class BigQueryStorageTableSource<T> extends BoundedSource<T> {
 
   @Override
   public long getEstimatedSizeBytes(PipelineOptions options) throws Exception {
-    if (cachedReadSizeBytes.get() == null) {
-      BigQueryOptions bqOptions = options.as(BigQueryOptions.class);
-      TableReference tableReference = getEffectiveTableReference(bqOptions);
-      Table table = bqServices.getDatasetService(bqOptions).getTable(tableReference);
-      long readSizeBytes = 0;
-      if (table != null) {
-        readSizeBytes = table.getNumBytes();
-      }
-      cachedReadSizeBytes.compareAndSet(null, readSizeBytes);
+    BigQueryOptions bqOptions = options.as(BigQueryOptions.class);
+    TableReference tableReference = getEffectiveTableReference(bqOptions);
+    Table table = getTable(tableReference, bqOptions);
+    long readSizeBytes = 0;
+    if (table != null) {
+      readSizeBytes = table.getNumBytes();
     }
-    return cachedReadSizeBytes.get();
+    return readSizeBytes;
   }
 
   @Override
@@ -215,8 +211,25 @@ class BigQueryStorageTableSource<T> extends BoundedSource<T> {
     return tableReference;
   }
 
+  private Table getTable(TableReference tableRef, BigQueryOptions options)
+      throws InterruptedException, IOException {
+    Table table = cachedTable.get();
+    if (table != null) {
+      return table;
+    }
+
+    List<String> selectedFields = null;
+    if (readSessionOptions != null) {
+      selectedFields = readSessionOptions.getSelectedFields();
+    }
+
+    table = bqServices.getDatasetService(options).getTable(tableRef, selectedFields);
+    cachedTable.compareAndSet(null, table);
+    return cachedTable.get();
+  }
+
   private void readObject(ObjectInputStream in) throws ClassNotFoundException, IOException {
     in.defaultReadObject();
-    cachedReadSizeBytes = new AtomicReference<>();
+    cachedTable = new AtomicReference<>();
   }
 }
