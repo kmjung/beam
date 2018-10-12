@@ -48,6 +48,7 @@ public class GcpApiSurfaceTest {
             .pruningPattern(BigqueryClient.class.getName())
             .pruningPattern("org[.]apache[.]beam[.].*Test.*")
             .pruningPattern("org[.]apache[.]beam[.].*IT")
+            .pruningPattern("org[.]apache[.]beam[.].*Fake.*")
             .pruningPattern("java[.]lang.*")
             .pruningPattern("java[.]util.*");
 

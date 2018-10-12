@@ -26,13 +26,13 @@ import java.util.List;
 import org.apache.beam.sdk.annotations.Experimental;
 import org.apache.beam.sdk.coders.Coder.Context;
 import org.apache.beam.sdk.coders.ListCoder;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServicesImpl.TableReadServiceImpl;
 
 /** A fake implementation of BigQuery's query service.. */
 @Experimental(Experimental.Kind.SOURCE_SINK)
 public class FakeBigQueryServices implements BigQueryServices {
   private JobService jobService;
   private FakeDatasetService datasetService;
-  private TableReadService tableReadService;
 
   public FakeBigQueryServices withJobService(JobService jobService) {
     this.jobService = jobService;
@@ -41,11 +41,6 @@ public class FakeBigQueryServices implements BigQueryServices {
 
   public FakeBigQueryServices withDatasetService(FakeDatasetService datasetService) {
     this.datasetService = datasetService;
-    return this;
-  }
-
-  FakeBigQueryServices withTableReadService(TableReadService tableReadService) {
-    this.tableReadService = tableReadService;
     return this;
   }
 
@@ -60,8 +55,8 @@ public class FakeBigQueryServices implements BigQueryServices {
   }
 
   @Override
-  public TableReadService getTableReadService(BigQueryOptions options) {
-    return tableReadService;
+  public TableReadService getTableReadService(BigQueryOptions bqOptions) throws IOException {
+    return new TableReadServiceImpl(FakeStorageService.getClient());
   }
 
   static List<TableRow> rowsFromEncodedQuery(String query) throws IOException {

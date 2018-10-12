@@ -49,7 +49,12 @@ import com.google.auth.Credentials;
 import com.google.auth.http.HttpCredentialsAdapter;
 import com.google.cloud.bigquery.storage.v1alpha1.BigQueryStorageClient;
 import com.google.cloud.bigquery.storage.v1alpha1.BigQueryStorageSettings;
-import com.google.cloud.bigquery.storage.v1alpha1.Storage;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.CreateReadSessionRequest;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsRequest;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsResponse;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadSession;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.SplitReadStreamRequest;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.SplitReadStreamResponse;
 import com.google.cloud.hadoop.util.ApiErrorExtractor;
 import com.google.cloud.hadoop.util.ChainingHttpRequestInitializer;
 import com.google.common.annotations.VisibleForTesting;
@@ -62,6 +67,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.beam.sdk.extensions.gcp.auth.NullCredentialInitializer;
 import org.apache.beam.sdk.extensions.gcp.options.GcsOptions;
@@ -111,7 +117,11 @@ class BigQueryServicesImpl implements BigQueryServices {
 
   @Override
   public TableReadService getTableReadService(BigQueryOptions options) throws IOException {
-    return new TableReadServiceImpl(options);
+    BigQueryStorageSettings settings =
+        BigQueryStorageSettings.newBuilder()
+            .setCredentialsProvider(FixedCredentialsProvider.create(options.getGcpCredential()))
+            .build();
+    return new TableReadServiceImpl(BigQueryStorageClient.create(settings));
   }
 
   private static BackOff createDefaultBackoff() {
@@ -873,29 +883,6 @@ class BigQueryServicesImpl implements BigQueryServices {
     }
   }
 
-  static class TableReadServiceImpl implements TableReadService {
-
-    private BigQueryStorageClient client;
-
-    private TableReadServiceImpl(BigQueryOptions options) throws IOException {
-      BigQueryStorageSettings settings =
-          BigQueryStorageSettings.newBuilder()
-              .setCredentialsProvider(FixedCredentialsProvider.create(options.getGcpCredential()))
-              .build();
-      this.client = BigQueryStorageClient.create(settings);
-    }
-
-    @Override
-    public Storage.ReadSession createSession(Storage.CreateReadSessionRequest request) {
-      return client.createReadSession(request);
-    }
-
-    @Override
-    public Iterator<Storage.ReadRowsResponse> readRows(Storage.ReadRowsRequest request) {
-      return client.readRowsCallable().blockingServerStreamingCall(request);
-    }
-  }
-
   static final SerializableFunction<IOException, Boolean> DONT_RETRY_NOT_FOUND =
       input -> {
         ApiErrorExtractor errorExtractor = new ApiErrorExtractor();
@@ -957,6 +944,68 @@ class BigQueryServicesImpl implements BigQueryServices {
     } else {
       return new ChainingHttpRequestInitializer(
           new HttpCredentialsAdapter(credential), httpRequestInitializer);
+    }
+  }
+
+  @VisibleForTesting
+  static class ServerStreamImpl<T> implements ServerStream<T> {
+
+    private final com.google.api.gax.rpc.ServerStream<T> serverStream;
+
+    public ServerStreamImpl(com.google.api.gax.rpc.ServerStream<T> serverStream) {
+      this.serverStream = serverStream;
+    }
+
+    @Override
+    @Nonnull
+    public Iterator<T> iterator() {
+      return serverStream.iterator();
+    }
+
+    @Override
+    public void cancel() {
+      serverStream.cancel();
+    }
+  }
+
+  @VisibleForTesting
+  static class TableReadServiceImpl implements TableReadService, AutoCloseable {
+    private static final Logger LOG = LoggerFactory.getLogger(TableReadServiceImpl.class);
+
+    private final BigQueryStorageClient client;
+
+    public TableReadServiceImpl(BigQueryStorageClient client) {
+      this.client = client;
+    }
+
+    @Override
+    public ReadSession createReadSession(CreateReadSessionRequest request) {
+      LOG.trace("Sending CreateReadSessionRequest {}", request);
+      ReadSession response = client.createReadSession(request);
+      LOG.trace("Received ReadSession response {}", response);
+      return response;
+    }
+
+    @Override
+    public ServerStream<ReadRowsResponse> readRows(ReadRowsRequest request) {
+      LOG.trace("Sending ReadRowsRequest {}", request);
+      ServerStream<ReadRowsResponse> stream =
+          new ServerStreamImpl<>(client.readRowsCallable().call(request));
+      LOG.trace("Received initial ReadRows response");
+      return stream;
+    }
+
+    @Override
+    public SplitReadStreamResponse splitReadStream(SplitReadStreamRequest request) {
+      LOG.trace("Sending SplitReadStreamRequest {}", request);
+      SplitReadStreamResponse response = client.splitReadStream(request);
+      LOG.trace("Received SplitReadStreamResponse {}", response);
+      return response;
+    }
+
+    @Override
+    public void close() {
+      client.close();
     }
   }
 }

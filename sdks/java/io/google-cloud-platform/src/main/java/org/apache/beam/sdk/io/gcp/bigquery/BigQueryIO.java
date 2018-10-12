@@ -33,7 +33,8 @@ import com.google.api.services.bigquery.model.TableRow;
 import com.google.api.services.bigquery.model.TableSchema;
 import com.google.api.services.bigquery.model.TimePartitioning;
 import com.google.auto.value.AutoValue;
-import com.google.cloud.bigquery.storage.v1alpha1.Storage;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadSession;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.Stream;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Predicates;
@@ -1065,57 +1066,58 @@ public class BigQueryIO {
 
       queryResultTableCollection.setCoder(StringUtf8Coder.of());
 
-      final TupleTag<Storage.ReadSession> readSessionTag = new TupleTag<>();
-      final TupleTag<Storage.StreamPosition> streamPositionTag = new TupleTag<>();
+      final TupleTag<ReadSession> readSessionTag = new TupleTag<>();
+      final TupleTag<Stream> streamTag = new TupleTag<>();
 
       PCollectionTuple tuple =
           queryResultTableCollection.apply(
               "CreateReadSession",
               ParDo.of(
-                      new DoFn<String, Storage.StreamPosition>() {
+                      new DoFn<String, Stream>() {
                         @ProcessElement
                         public void processElement(ProcessContext c) throws Exception {
                           PipelineOptions options = c.getPipelineOptions();
                           BigQueryOptions bqOptions = options.as(BigQueryOptions.class);
                           TableReference queryResultTable =
                               BigQueryHelpers.fromJsonString(c.element(), TableReference.class);
-                          TableReadService tableReadService =
-                              getBigQueryServices().getTableReadService(bqOptions);
-                          Storage.ReadSession readSession =
-                              BigQueryHelpers.createReadSession(
-                                  tableReadService, queryResultTable, 0, getReadSessionOptions());
+                          ReadSession readSession;
+                          try (TableReadService client =
+                              getBigQueryServices().getTableReadService(bqOptions)) {
+                            readSession =
+                                BigQueryHelpers.createReadSession(
+                                    client, queryResultTable, 0, getReadSessionOptions());
+                          }
                           c.output(readSessionTag, readSession);
-                          for (Storage.Stream stream : readSession.getStreamsList()) {
-                            c.output(Storage.StreamPosition.newBuilder().setStream(stream).build());
+                          for (Stream stream : readSession.getStreamsList()) {
+                            c.output(stream);
                           }
                         }
                       })
-                  .withOutputTags(streamPositionTag, TupleTagList.of(readSessionTag)));
+                  .withOutputTags(streamTag, TupleTagList.of(readSessionTag)));
 
-      tuple.get(readSessionTag).setCoder(ProtoCoder.of(Storage.ReadSession.class));
-      tuple.get(streamPositionTag).setCoder(ProtoCoder.of(Storage.StreamPosition.class));
+      tuple.get(readSessionTag).setCoder(ProtoCoder.of(ReadSession.class));
+      tuple.get(streamTag).setCoder(ProtoCoder.of(Stream.class));
 
-      final PCollectionView<Storage.ReadSession> readSessionView =
+      final PCollectionView<ReadSession> readSessionView =
           tuple.get(readSessionTag).apply("ViewReadSession", View.asSingleton());
 
       PCollection<T> rows =
           tuple
-              .get(streamPositionTag)
+              .get(streamTag)
               .apply(Reshuffle.viaRandomKey())
               .apply(
                   "ReadFromTemporaryTable",
                   ParDo.of(
-                          new DoFn<Storage.StreamPosition, T>() {
+                          new DoFn<Stream, T>() {
                             @ProcessElement
                             public void processElement(ProcessContext c) throws Exception {
                               BigQueryStorageStreamSource<T> source =
                                   BigQueryStorageStreamSource.create(
-                                      getBigQueryServices(),
-                                      getRowProtoParseFn(),
-                                      coder,
                                       c.sideInput(readSessionView),
                                       c.element(),
-                                      null);
+                                      getRowProtoParseFn(),
+                                      coder,
+                                      getBigQueryServices());
                               BoundedSource.BoundedReader<T> reader =
                                   source.createReader(c.getPipelineOptions());
                               for (boolean more = reader.start(); more; more = reader.advance()) {

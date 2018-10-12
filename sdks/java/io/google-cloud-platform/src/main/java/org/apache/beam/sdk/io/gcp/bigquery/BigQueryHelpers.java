@@ -375,7 +375,7 @@ public class BigQueryHelpers {
   }
 
   static Storage.ReadSession createReadSession(
-      TableReadService tableReadService,
+      TableReadService client,
       TableReference tableReference,
       int requestedStreams,
       ReadSessionOptions readSessionOptions) {
@@ -411,7 +411,7 @@ public class BigQueryHelpers {
       }
     }
 
-    return tableReadService.createSession(requestBuilder.build());
+    return client.createReadSession(requestBuilder.build());
   }
 
   @VisibleForTesting

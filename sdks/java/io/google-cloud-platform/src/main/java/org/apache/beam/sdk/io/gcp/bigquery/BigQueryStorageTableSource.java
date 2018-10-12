@@ -24,6 +24,7 @@ import static com.google.common.base.Preconditions.checkState;
 import com.google.api.services.bigquery.model.Table;
 import com.google.api.services.bigquery.model.TableReference;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadSession;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
@@ -33,6 +34,7 @@ import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.TableRefToJson;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.ReadSessionOptions;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.TableReadService;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.beam.sdk.options.ValueProvider.NestedValueProvider;
@@ -118,12 +120,12 @@ class BigQueryStorageTableSource<T> extends BoundedSource<T> {
       readerCount = MIN_SPLIT_COUNT;
     }
 
-    Storage.ReadSession readSession =
-        BigQueryHelpers.createReadSession(
-            bqServices.getTableReadService(bqOptions),
-            tableReference,
-            readerCount,
-            readSessionOptions);
+    ReadSession readSession;
+    try (TableReadService client = bqServices.getTableReadService(bqOptions)) {
+      readSession =
+          BigQueryHelpers.createReadSession(
+              client, tableReference, readerCount, readSessionOptions);
+    }
 
     if (readSession.getStreamsCount() == 0) {
       return ImmutableList.of();
@@ -133,13 +135,7 @@ class BigQueryStorageTableSource<T> extends BoundedSource<T> {
     List<BoundedSource<T>> sources = new ArrayList<>(readSession.getStreamsCount());
     for (Storage.Stream stream : readSession.getStreamsList()) {
       sources.add(
-          new BigQueryStorageStreamSource<>(
-              bqServices,
-              parseFn,
-              coder,
-              readSession,
-              Storage.StreamPosition.newBuilder().setStream(stream).build(),
-              readSizeBytes));
+          BigQueryStorageStreamSource.create(readSession, stream, parseFn, coder, bqServices));
     }
 
     return ImmutableList.copyOf(sources);

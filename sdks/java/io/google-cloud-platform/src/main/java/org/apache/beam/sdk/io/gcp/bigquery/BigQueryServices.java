@@ -28,10 +28,14 @@ import com.google.api.services.bigquery.model.JobStatistics;
 import com.google.api.services.bigquery.model.Table;
 import com.google.api.services.bigquery.model.TableReference;
 import com.google.api.services.bigquery.model.TableRow;
-import com.google.cloud.bigquery.storage.v1alpha1.Storage;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.CreateReadSessionRequest;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsRequest;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsResponse;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadSession;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.SplitReadStreamRequest;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage.SplitReadStreamResponse;
 import java.io.IOException;
 import java.io.Serializable;
-import java.util.Iterator;
 import java.util.List;
 import javax.annotation.Nullable;
 import org.apache.beam.sdk.values.ValueInSingleWindow;
@@ -46,7 +50,7 @@ public interface BigQueryServices extends Serializable {
   DatasetService getDatasetService(BigQueryOptions bqOptions);
 
   /** Returns a real, mock, or fake {@link TableReadService}. */
-  TableReadService getTableReadService(BigQueryOptions options) throws IOException;
+  TableReadService getTableReadService(BigQueryOptions bqOptions) throws IOException;
 
   /** An interface for the Cloud BigQuery load service. */
   interface JobService {
@@ -156,13 +160,29 @@ public interface BigQueryServices extends Serializable {
         throws IOException, InterruptedException;
   }
 
-  /** An interface to read BigQuery table data. */
-  interface TableReadService {
+  /** An interface representing a server-side streaming RPC. */
+  interface ServerStream<T> extends Iterable<T> {
+    void cancel();
+  }
 
-    /** Creates a new read session against an existing table. */
-    Storage.ReadSession createSession(Storage.CreateReadSessionRequest request);
+  /** An interface to read table data from BigQuery. */
+  interface TableReadService extends AutoCloseable {
+    /** Create a new read session against a table. */
+    ReadSession createReadSession(CreateReadSessionRequest request);
 
-    /** Initiates a read stream from an existing session and read location. */
-    Iterator<Storage.ReadRowsResponse> readRows(Storage.ReadRowsRequest request);
+    /** Read data in the context of a stream. */
+    ServerStream<ReadRowsResponse> readRows(ReadRowsRequest request);
+
+    /** Split a read stream into a pair of child streams. */
+    SplitReadStreamResponse splitReadStream(SplitReadStreamRequest request);
+
+    /**
+     * Close the table read service instance and free any associated resources.
+     *
+     * <p>Note the override is required since AutoCloseable allows {@link #close()} to raise {@link
+     * Exception}.
+     */
+    @Override
+    void close();
   }
 }
