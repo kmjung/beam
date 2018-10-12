@@ -19,7 +19,6 @@ package org.apache.beam.sdk.io.gcp.bigquery;
 
 import com.google.api.client.util.Base64;
 import com.google.api.services.bigquery.model.TableRow;
-import com.google.cloud.bigquery.storage.v1alpha1.BigQueryStorageClient;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -27,6 +26,7 @@ import java.util.List;
 import org.apache.beam.sdk.annotations.Experimental;
 import org.apache.beam.sdk.coders.Coder.Context;
 import org.apache.beam.sdk.coders.ListCoder;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServicesImpl.TableReadServiceImpl;
 
 /** A fake implementation of BigQuery's query service.. */
 @Experimental(Experimental.Kind.SOURCE_SINK)
@@ -55,8 +55,8 @@ public class FakeBigQueryServices implements BigQueryServices {
   }
 
   @Override
-  public BigQueryStorageClient getStorageClient(BigQueryOptions options) throws IOException {
-    return FakeStorageService.getClient();
+  public TableReadService getTableReadService(BigQueryOptions bqOptions) throws IOException {
+    return new TableReadServiceImpl(FakeStorageService.getClient());
   }
 
   static List<TableRow> rowsFromEncodedQuery(String query) throws IOException {

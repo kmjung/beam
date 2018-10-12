@@ -33,7 +33,6 @@ import com.google.api.services.bigquery.model.TableRow;
 import com.google.api.services.bigquery.model.TableSchema;
 import com.google.api.services.bigquery.model.TimePartitioning;
 import com.google.auto.value.AutoValue;
-import com.google.cloud.bigquery.storage.v1alpha1.BigQueryStorageClient;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadSession;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.Stream;
 import com.google.common.annotations.VisibleForTesting;
@@ -73,6 +72,7 @@ import org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.TableSpecToTableRef;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.TimePartitioningToJson;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.DatasetService;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.JobService;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.TableReadService;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQuerySourceBase.ExtractResult;
 import org.apache.beam.sdk.io.gcp.bigquery.DynamicDestinationsHelpers.ConstantSchemaDestinations;
 import org.apache.beam.sdk.io.gcp.bigquery.DynamicDestinationsHelpers.ConstantTimePartitioningDestinations;
@@ -1081,8 +1081,8 @@ public class BigQueryIO {
                           TableReference queryResultTable =
                               BigQueryHelpers.fromJsonString(c.element(), TableReference.class);
                           ReadSession readSession;
-                          try (BigQueryStorageClient client =
-                              getBigQueryServices().getStorageClient(bqOptions)) {
+                          try (TableReadService client =
+                              getBigQueryServices().getTableReadService(bqOptions)) {
                             readSession =
                                 BigQueryHelpers.createReadSession(
                                     client, queryResultTable, 0, getReadSessionOptions());

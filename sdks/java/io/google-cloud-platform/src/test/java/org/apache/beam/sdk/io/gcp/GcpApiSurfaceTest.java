@@ -48,7 +48,7 @@ public class GcpApiSurfaceTest {
             .pruningPattern(BigqueryClient.class.getName())
             .pruningPattern("org[.]apache[.]beam[.].*Test.*")
             .pruningPattern("org[.]apache[.]beam[.].*IT")
-            .pruningPattern("org[.]apache[.]beam[.].Fake*")
+            .pruningPattern("org[.]apache[.]beam[.].*Fake.*")
             .pruningPattern("java[.]lang.*")
             .pruningPattern("java[.]util.*");
 
@@ -60,7 +60,6 @@ public class GcpApiSurfaceTest {
             classesInPackage("com.google.api.client.http"),
             classesInPackage("com.google.api.client.json"),
             classesInPackage("com.google.api.client.util"),
-            classesInPackage("com.google.api.gax"),
             classesInPackage("com.google.api.services.bigquery.model"),
             classesInPackage("com.google.auth"),
             classesInPackage("com.google.bigtable.v2"),
@@ -68,6 +67,10 @@ public class GcpApiSurfaceTest {
             classesInPackage("com.google.cloud.bigquery.v3"),
             classesInPackage("com.google.cloud.bigquery.storage.v1alpha1"),
             classesInPackage("com.google.spanner.v1"),
+            Matchers.equalTo(com.google.api.gax.rpc.ApiException.class),
+            Matchers.<Class<?>>equalTo(com.google.api.gax.paging.Page.class),
+            Matchers.<Class<?>>equalTo(com.google.api.gax.rpc.StatusCode.class),
+            Matchers.<Class<?>>equalTo(com.google.api.gax.rpc.StatusCode.Code.class),
             Matchers.<Class<?>>equalTo(com.google.cloud.bigtable.grpc.BigtableClusterName.class),
             Matchers.<Class<?>>equalTo(com.google.cloud.bigtable.grpc.BigtableInstanceName.class),
             Matchers.<Class<?>>equalTo(com.google.cloud.bigtable.grpc.BigtableTableName.class),
@@ -82,7 +85,6 @@ public class GcpApiSurfaceTest {
             Matchers.<Class<?>>equalTo(com.google.cloud.Date.class),
             Matchers.<Class<?>>equalTo(com.google.cloud.Timestamp.class),
             classesInPackage("com.google.cloud.spanner"),
-            classesInPackage("com.google.common.collect"),
             classesInPackage("com.google.spanner.admin.database.v1"),
             classesInPackage("com.google.datastore.v1"),
             classesInPackage("com.google.protobuf"),
@@ -97,8 +99,7 @@ public class GcpApiSurfaceTest {
             classesInPackage("org.apache.beam"),
             classesInPackage("org.apache.commons.logging"),
             classesInPackage("org.codehaus.jackson"),
-            classesInPackage("org.joda.time"),
-            classesInPackage("org.threeten.bp"));
+            classesInPackage("org.joda.time"));
 
     assertThat(apiSurface, containsOnlyClassesMatching(allowedClasses));
   }

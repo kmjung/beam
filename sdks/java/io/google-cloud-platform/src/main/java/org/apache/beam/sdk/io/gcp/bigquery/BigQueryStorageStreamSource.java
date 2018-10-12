@@ -21,8 +21,6 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 
-import com.google.api.gax.rpc.ServerStream;
-import com.google.cloud.bigquery.storage.v1alpha1.BigQueryStorageClient;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsRequest;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadRowsResponse;
 import com.google.cloud.bigquery.storage.v1alpha1.Storage.ReadSession;
@@ -42,6 +40,8 @@ import org.apache.beam.sdk.annotations.Experimental;
 import org.apache.beam.sdk.annotations.Experimental.Kind;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.io.BoundedSource;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.ServerStream;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.TableReadService;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.apache.beam.sdk.transforms.display.DisplayData;
@@ -256,7 +256,7 @@ public class BigQueryStorageStreamSource<T> extends BoundedSource<T> {
   public static class BigQueryStorageStreamReader<T> extends BoundedSource.BoundedReader<T> {
     private static final Logger LOG = LoggerFactory.getLogger(BigQueryStorageStreamReader.class);
 
-    private final BigQueryStorageClient client;
+    private final TableReadService client;
     private final SerializableFunction<SchemaAndRowProto, T> parseFn;
     private final StructType schema;
     private final StreamOffsetRangeTracker rangeTracker;
@@ -278,7 +278,7 @@ public class BigQueryStorageStreamSource<T> extends BoundedSource<T> {
     BigQueryStorageStreamReader(BigQueryStorageStreamSource<T> source, BigQueryOptions options)
         throws IOException {
       this.currentSource = source;
-      this.client = source.bqServices.getStorageClient(options);
+      this.client = source.bqServices.getTableReadService(options);
       this.parseFn = source.parseFn;
       this.schema = source.readSession.getProjectedSchema();
       this.rangeTracker =
@@ -306,7 +306,7 @@ public class BigQueryStorageStreamSource<T> extends BoundedSource<T> {
 
       ReadRowsRequest request =
           ReadRowsRequest.newBuilder().setReadPosition(currentPosition).build();
-      responseStream = client.readRowsCallable().call(request);
+      responseStream = client.readRows(request);
       responseIterator = responseStream.iterator();
       rowIterator = null;
       return readNextRow();
@@ -346,7 +346,7 @@ public class BigQueryStorageStreamSource<T> extends BoundedSource<T> {
 
         ReadRowsRequest request =
             ReadRowsRequest.newBuilder().setReadPosition(currentPosition).build();
-        responseStream = client.readRowsCallable().call(request);
+        responseStream = client.readRows(request);
         responseIterator = responseStream.iterator();
         rowIterator = null;
         estimatedStreamLength = StreamOffsetRangeTracker.OFFSET_INFINITY;
