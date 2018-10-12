@@ -175,6 +175,23 @@ task examplesJavaIntegrationTest(type: Test) {
   useJUnit { }
 }
 
+task examplesBQWordCountIntegrationTest(type: Test) {
+  group = "Verification"
+  def dataflowProject = project.findProperty('dataflowProject') ?: 'apache-beam-testing'
+  def dataflowTempRoot = project.findProperty('dataflowTempRoot') ?: 'gs://temp-storage-for-end-to-end-tests'
+  systemProperty "beamTestPipelineOptions", JsonOutput.toJson([
+          "--runner=TestDataflowRunner",
+          "--project=${dataflowProject}",
+          "--tempRoot=${dataflowTempRoot}",
+  ])
+
+  include '**/BigQueryWordCountIT.class'
+  maxParallelForks 4
+  classpath = configurations.examplesJavaIntegrationTest
+  testClassesDirs = files(project(":beam-examples-java").sourceSets.test.output.classesDirs)
+  useJUnit { }
+}
+
 task postCommit {
   group = "Verification"
   description = "Various integration tests using the Dataflow runner."

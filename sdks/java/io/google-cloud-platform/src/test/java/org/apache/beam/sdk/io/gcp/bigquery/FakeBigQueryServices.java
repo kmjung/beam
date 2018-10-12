@@ -32,6 +32,7 @@ import org.apache.beam.sdk.coders.ListCoder;
 public class FakeBigQueryServices implements BigQueryServices {
   private JobService jobService;
   private FakeDatasetService datasetService;
+  private TableReadService tableReadService;
 
   public FakeBigQueryServices withJobService(JobService jobService) {
     this.jobService = jobService;
@@ -43,6 +44,11 @@ public class FakeBigQueryServices implements BigQueryServices {
     return this;
   }
 
+  FakeBigQueryServices withTableReadService(TableReadService tableReadService) {
+    this.tableReadService = tableReadService;
+    return this;
+  }
+
   @Override
   public JobService getJobService(BigQueryOptions bqOptions) {
     return jobService;
@@ -51,6 +57,11 @@ public class FakeBigQueryServices implements BigQueryServices {
   @Override
   public DatasetService getDatasetService(BigQueryOptions bqOptions) {
     return datasetService;
+  }
+
+  @Override
+  public TableReadService getTableReadService(BigQueryOptions options) {
+    return tableReadService;
   }
 
   static List<TableRow> rowsFromEncodedQuery(String query) throws IOException {

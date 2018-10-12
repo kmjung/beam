@@ -33,6 +33,7 @@ import com.google.api.services.bigquery.model.TableRow;
 import com.google.api.services.bigquery.model.TableSchema;
 import com.google.api.services.bigquery.model.TimePartitioning;
 import com.google.auto.value.AutoValue;
+import com.google.cloud.bigquery.storage.v1alpha1.Storage;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Predicates;
@@ -41,6 +42,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import java.io.IOException;
+import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -56,6 +58,7 @@ import org.apache.beam.sdk.coders.CoderRegistry;
 import org.apache.beam.sdk.coders.KvCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
+import org.apache.beam.sdk.extensions.protobuf.ProtoCoder;
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.io.FileSystems;
 import org.apache.beam.sdk.io.fs.MoveOptions;
@@ -68,6 +71,7 @@ import org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.TableSpecToTableRef;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.TimePartitioningToJson;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.DatasetService;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.JobService;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.TableReadService;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQuerySourceBase.ExtractResult;
 import org.apache.beam.sdk.io.gcp.bigquery.DynamicDestinationsHelpers.ConstantSchemaDestinations;
 import org.apache.beam.sdk.io.gcp.bigquery.DynamicDestinationsHelpers.ConstantTimePartitioningDestinations;
@@ -302,6 +306,32 @@ import org.slf4j.LoggerFactory;
 public class BigQueryIO {
   private static final Logger LOG = LoggerFactory.getLogger(BigQueryIO.class);
 
+  /** This class specifies options for a BigQuery parallel read session. */
+  @AutoValue
+  public abstract static class ReadSessionOptions implements Serializable {
+    @Nullable
+    public abstract String getSqlFilter();
+
+    @Nullable
+    public abstract List<String> getSelectedFields();
+
+    abstract ReadSessionOptions.Builder toBuilder();
+
+    public static Builder builder() {
+      return new AutoValue_BigQueryIO_ReadSessionOptions.Builder();
+    }
+
+    /** Builder for {link ReadSessionOptions}. */
+    @AutoValue.Builder
+    public abstract static class Builder {
+      public abstract Builder setSqlFilter(String sqlFilter);
+
+      public abstract Builder setSelectedFields(List<String> selectedFields);
+
+      public abstract ReadSessionOptions build();
+    }
+  }
+
   /** Singleton instance of the JSON factory used to read and write JSON formatted rows. */
   static final JsonFactory JSON_FACTORY = Transport.getJsonFactory();
 
@@ -382,6 +412,36 @@ public class BigQueryIO {
         .setWithTemplateCompatibility(false)
         .setBigQueryServices(new BigQueryServicesImpl())
         .setParseFn(parseFn)
+        .setMethod(TypedRead.Method.EXPORT)
+        .build();
+  }
+
+  /**
+   * Reads from a BigQuery table using the BigQuery parallel read API and returns a {@link
+   * PCollection} with one element per each row of the table, parsed from the BigQuery {@link
+   * com.google.cloud.bigquery.v3.RowOuterClass.Row} format using the specified function.
+   *
+   * <p>Each {@link SchemaAndRowProto} contains a BigQuery {@link
+   * com.google.cloud.bigquery.v3.RowOuterClass.StructType} representing the table schema and a
+   * {@link com.google.cloud.bigquery.v3.RowOuterClass.Row} representing the row, indexed by column
+   * name. Here is a sample parse function that parses click events from a table.
+   *
+   * <pre>{@code
+   * p.apply(
+   *   BigQueryIO.readViaRowProto((SchemaAndRowProto input) -> {
+   *     return new Event((Long) input.get("userId"), (String) row.get("url"));
+   *   }).from("..."));
+   * }</pre>
+   */
+  @Experimental
+  public static <T> TypedRead<T> readViaRowProto(
+      SerializableFunction<SchemaAndRowProto, T> parseFn) {
+    return new AutoValue_BigQueryIO_TypedRead.Builder<T>()
+        .setValidate(true)
+        .setWithTemplateCompatibility(false)
+        .setBigQueryServices(new BigQueryServicesImpl())
+        .setRowProtoParseFn(parseFn)
+        .setMethod(TypedRead.Method.READ)
         .build();
   }
 
@@ -394,6 +454,19 @@ public class BigQueryIO {
     public TableRow apply(SchemaAndRecord schemaAndRecord) {
       return BigQueryAvroUtils.convertGenericRecordToTableRow(
           schemaAndRecord.getRecord(), schemaAndRecord.getTableSchema());
+    }
+  }
+
+  @Experimental
+  @VisibleForTesting
+  static class TableRowProtoParser implements SerializableFunction<SchemaAndRowProto, TableRow> {
+
+    public static final TableRowProtoParser INSTANCE = new TableRowProtoParser();
+
+    @Override
+    public TableRow apply(SchemaAndRowProto schemaAndRowProto) {
+      return BigQueryRowProtoUtils.convertRowProtoToTableRow(
+          schemaAndRowProto.getSchema(), schemaAndRowProto.getRow());
     }
   }
 
@@ -525,7 +598,10 @@ public class BigQueryIO {
 
   /////////////////////////////////////////////////////////////////////////////
 
-  /** Implementation of {@link BigQueryIO#read(SerializableFunction)}. */
+  /**
+   * Implementation of {@link BigQueryIO#read(SerializableFunction)} and {@link
+   * BigQueryIO#readViaRowProto(SerializableFunction)}.
+   */
   @AutoValue
   public abstract static class TypedRead<T> extends PTransform<PBegin, PCollection<T>> {
     abstract Builder<T> toBuilder();
@@ -550,9 +626,18 @@ public class BigQueryIO {
 
       abstract Builder<T> setQueryLocation(String location);
 
+      @Experimental
+      abstract Builder<T> setMethod(Method method);
+
+      @Experimental
+      abstract Builder<T> setReadSessionOptions(ReadSessionOptions options);
+
       abstract TypedRead<T> build();
 
       abstract Builder<T> setParseFn(SerializableFunction<SchemaAndRecord, T> parseFn);
+
+      @Experimental
+      abstract Builder<T> setRowProtoParseFn(SerializableFunction<SchemaAndRowProto, T> parseFn);
 
       abstract Builder<T> setCoder(Coder<T> coder);
     }
@@ -575,7 +660,19 @@ public class BigQueryIO {
 
     abstract BigQueryServices getBigQueryServices();
 
+    @Nullable
     abstract SerializableFunction<SchemaAndRecord, T> getParseFn();
+
+    @Experimental
+    @Nullable
+    abstract SerializableFunction<SchemaAndRowProto, T> getRowProtoParseFn();
+
+    @Experimental
+    abstract Method getMethod();
+
+    @Experimental
+    @Nullable
+    abstract ReadSessionOptions getReadSessionOptions();
 
     @Nullable
     abstract QueryPriority getQueryPriority();
@@ -611,6 +708,26 @@ public class BigQueryIO {
       BATCH
     }
 
+    /** An enumeration type for the method to be used when reading data from BigQuery. */
+    public enum Method {
+
+      /** The default behavior if no method is explicitly set. Currently {@link #EXPORT}. */
+      DEFAULT,
+
+      /**
+       * Export data to Google Cloud Storage in Avro format and read data from that location. This
+       * option can be used to read from existing BigQuery tables and to read the results of
+       * queries.
+       */
+      EXPORT,
+
+      /**
+       * Read the contents of a table directly from BigQuery storage using the BigQuery parallel
+       * read API. This option can be used only to read the contents of an existing table.
+       */
+      READ,
+    }
+
     @VisibleForTesting
     Coder<T> inferCoder(CoderRegistry coderRegistry) {
       if (getCoder() != null) {
@@ -618,7 +735,11 @@ public class BigQueryIO {
       }
 
       try {
-        return coderRegistry.getCoder(TypeDescriptors.outputOf(getParseFn()));
+        if (getMethod() == Method.READ) {
+          return coderRegistry.getCoder(TypeDescriptors.outputOf(getRowProtoParseFn()));
+        } else {
+          return coderRegistry.getCoder(TypeDescriptors.outputOf(getParseFn()));
+        }
       } catch (CannotProvideCoderException e) {
         throw new IllegalArgumentException(
             "Unable to infer coder for output of parseFn. Specify it explicitly using withCoder().",
@@ -657,20 +778,21 @@ public class BigQueryIO {
       // Even if existence validation is disabled, we need to make sure that the BigQueryIO
       // read is properly specified.
       BigQueryOptions bqOptions = options.as(BigQueryOptions.class);
-
-      String tempLocation = bqOptions.getTempLocation();
-      checkArgument(
-          !Strings.isNullOrEmpty(tempLocation),
-          "BigQueryIO.Read needs a GCS temp location to store temp files.");
-      if (getBigQueryServices() == null) {
-        try {
-          GcsPath.fromUri(tempLocation);
-        } catch (IllegalArgumentException e) {
-          throw new IllegalArgumentException(
-              String.format(
-                  "BigQuery temp location expected a valid 'gs://' path, but was given '%s'",
-                  tempLocation),
-              e);
+      if (getMethod() != Method.READ) {
+        String tempLocation = bqOptions.getTempLocation();
+        checkArgument(
+            !Strings.isNullOrEmpty(tempLocation),
+            "BigQueryIO.Read needs a GCS temp location to store temp files.");
+        if (getBigQueryServices() == null) {
+          try {
+            GcsPath.fromUri(tempLocation);
+          } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(
+                String.format(
+                    "BigQuery temp location expected a valid 'gs://' path, but was given '%s'",
+                    tempLocation),
+                e);
+          }
         }
       }
 
@@ -737,7 +859,25 @@ public class BigQueryIO {
             getFlattenResults() != null, "flattenResults should not be null if query is set");
         checkArgument(getUseLegacySql() != null, "useLegacySql should not be null if query is set");
       }
-      checkArgument(getParseFn() != null, "A parseFn is required");
+
+      if (getMethod() == Method.READ) {
+        return expandForStorageApiRead(input);
+      }
+
+      checkArgument(
+          getParseFn() != null,
+          "Invalid BigQueryIO.Read: An Avro parseFn is required when using"
+              + " TypedRead.Method.EXPORT");
+
+      checkArgument(
+          getRowProtoParseFn() == null,
+          "Invalid BigQueryIO.Read: Specifies a row proto parseFn, which only applies when using"
+              + " TypedRead.Method.READ");
+
+      checkArgument(
+          getReadSessionOptions() == null,
+          "Invalid BigQueryIO.Read: Specifies read session options, which only apply when using"
+              + " TypedRead.Method.READ");
 
       Pipeline p = input.getPipeline();
       final Coder<T> coder = inferCoder(p.getCoderRegistry());
@@ -833,7 +973,7 @@ public class BigQueryIO {
             void cleanup(PassThroughThenCleanup.ContextContainer c) throws Exception {
               PipelineOptions options = c.getPipelineOptions();
               BigQueryOptions bqOptions = options.as(BigQueryOptions.class);
-              String jobUuid = c.getJobId();
+              String jobUuid = c.getSideInput();
               final String extractDestinationDir =
                   resolveTempLocation(bqOptions.getTempLocation(), "BigQueryExtractTemp", jobUuid);
               final String executingProject = bqOptions.getProject();
@@ -855,6 +995,157 @@ public class BigQueryIO {
             }
           };
       return rows.apply(new PassThroughThenCleanup<>(cleanupOperation, jobIdTokenView));
+    }
+
+    private PCollection<T> expandForStorageApiRead(PBegin input) {
+
+      checkArgument(
+          getRowProtoParseFn() != null,
+          "Invalid BigQueryIO.Read: A row proto parseFn is required when using"
+              + " TypedRead.Method.READ");
+
+      checkArgument(
+          getParseFn() == null,
+          "Invalid BigQueryIO.Read: Specifies an Avro parseFn, which only applies when using"
+              + " TypedRead.Method.EXPORT");
+
+      Pipeline p = input.getPipeline();
+      final Coder<T> coder = inferCoder(p.getCoderRegistry());
+
+      // When using Method.READ to read directly from a table, there are no temporary
+      // resources to clean up. Apply a Read transform to the pipeline and return.
+      if (getTableProvider() != null) {
+        return p.apply(
+            org.apache.beam.sdk.io.Read.from(
+                BigQueryStorageTableSource.create(
+                    getTableProvider(),
+                    getRowProtoParseFn(),
+                    coder,
+                    getBigQueryServices(),
+                    getReadSessionOptions())));
+      }
+
+      // When using Method.READ to read the results of a query, the underlying
+      // dataset and table must remain live while the data is being read and then be cleaned up
+      // afterwards.
+      PCollection<String> queryResultTableCollection =
+          p.apply("TriggerJobIdCreation", Create.of("ignored"))
+              .apply(
+                  "CreateJobId",
+                  MapElements.via(
+                      new SimpleFunction<String, String>() {
+                        @Override
+                        public String apply(String ignored) {
+                          return BigQueryHelpers.randomUUIDString();
+                        }
+                      }))
+              .apply(
+                  "ExecuteQuery",
+                  ParDo.of(
+                      new DoFn<String, String>() {
+                        @ProcessElement
+                        public void processElement(ProcessContext c) throws Exception {
+                          PipelineOptions options = c.getPipelineOptions();
+                          BigQueryOptions bqOptions = options.as(BigQueryOptions.class);
+                          String jobUuid = c.element();
+                          BigQueryQueryHelper queryHelper =
+                              new BigQueryQueryHelper(
+                                  jobUuid,
+                                  getQuery(),
+                                  getFlattenResults(),
+                                  getUseLegacySql(),
+                                  getBigQueryServices(),
+                                  MoreObjects.firstNonNull(getQueryPriority(), QueryPriority.BATCH),
+                                  getQueryLocation());
+                          TableReference queryResultTable =
+                              queryHelper.createTableAndExecuteQuery(bqOptions);
+                          c.output(BigQueryHelpers.toJsonString(queryResultTable));
+                        }
+                      }));
+
+      queryResultTableCollection.setCoder(StringUtf8Coder.of());
+
+      final TupleTag<Storage.ReadSession> readSessionTag = new TupleTag<>();
+      final TupleTag<Storage.StreamPosition> streamPositionTag = new TupleTag<>();
+
+      PCollectionTuple tuple =
+          queryResultTableCollection.apply(
+              "CreateReadSession",
+              ParDo.of(
+                      new DoFn<String, Storage.StreamPosition>() {
+                        @ProcessElement
+                        public void processElement(ProcessContext c) throws Exception {
+                          PipelineOptions options = c.getPipelineOptions();
+                          BigQueryOptions bqOptions = options.as(BigQueryOptions.class);
+                          TableReference queryResultTable =
+                              BigQueryHelpers.fromJsonString(c.element(), TableReference.class);
+                          TableReadService tableReadService =
+                              getBigQueryServices().getTableReadService(bqOptions);
+                          Storage.ReadSession readSession =
+                              BigQueryHelpers.createReadSession(
+                                  tableReadService, queryResultTable, 0, getReadSessionOptions());
+                          c.output(readSessionTag, readSession);
+                          for (Storage.Stream stream : readSession.getStreamsList()) {
+                            c.output(Storage.StreamPosition.newBuilder().setStream(stream).build());
+                          }
+                        }
+                      })
+                  .withOutputTags(streamPositionTag, TupleTagList.of(readSessionTag)));
+
+      tuple.get(readSessionTag).setCoder(ProtoCoder.of(Storage.ReadSession.class));
+      tuple.get(streamPositionTag).setCoder(ProtoCoder.of(Storage.StreamPosition.class));
+
+      final PCollectionView<Storage.ReadSession> readSessionView =
+          tuple.get(readSessionTag).apply("ViewReadSession", View.asSingleton());
+
+      PCollection<T> rows =
+          tuple
+              .get(streamPositionTag)
+              .apply(Reshuffle.viaRandomKey())
+              .apply(
+                  "ReadFromTemporaryTable",
+                  ParDo.of(
+                          new DoFn<Storage.StreamPosition, T>() {
+                            @ProcessElement
+                            public void processElement(ProcessContext c) throws Exception {
+                              BigQueryStorageStreamSource<T> source =
+                                  BigQueryStorageStreamSource.create(
+                                      getBigQueryServices(),
+                                      getRowProtoParseFn(),
+                                      coder,
+                                      c.sideInput(readSessionView),
+                                      c.element(),
+                                      null);
+                              BoundedSource.BoundedReader<T> reader =
+                                  source.createReader(c.getPipelineOptions());
+                              for (boolean more = reader.start(); more; more = reader.advance()) {
+                                c.output(reader.getCurrent());
+                              }
+                            }
+                          })
+                      .withSideInputs(readSessionView));
+
+      rows.setCoder(coder);
+
+      final PCollectionView<String> queryResultTableView =
+          queryResultTableCollection.apply("ViewTemporaryTable", View.asSingleton());
+
+      PassThroughThenCleanup.CleanupOperation cleanupOperation =
+          new PassThroughThenCleanup.CleanupOperation() {
+            @Override
+            void cleanup(PassThroughThenCleanup.ContextContainer c) throws Exception {
+              PipelineOptions options = c.getPipelineOptions();
+              BigQueryOptions bqOptions = options.as(BigQueryOptions.class);
+              TableReference queryResultTable =
+                  BigQueryHelpers.fromJsonString(c.getSideInput(), TableReference.class);
+              DatasetService datasetService = getBigQueryServices().getDatasetService(bqOptions);
+              datasetService.deleteTable(queryResultTable);
+              datasetService.deleteDataset(
+                  queryResultTable.getProjectId(), queryResultTable.getDatasetId());
+            }
+          };
+
+      return rows.apply(new PassThroughThenCleanup<>(cleanupOperation, queryResultTableView));
     }
 
     @Override
@@ -902,6 +1193,15 @@ public class BigQueryIO {
      */
     public TypedRead<T> withCoder(Coder<T> coder) {
       return toBuilder().setCoder(coder).build();
+    }
+
+    /**
+     * Sets the {@link ReadSessionOptions} for the read session. This can be specified only when
+     * using {@link Method#READ} as the underlying method.
+     */
+    @Experimental
+    public TypedRead<T> withReadSessionOptions(ReadSessionOptions options) {
+      return toBuilder().setReadSessionOptions(options).build();
     }
 
     /** See {@link Read#from(String)}. */
