@@ -428,7 +428,8 @@ public class FakeJobService implements JobService, Serializable {
   private JobStatus runQueryJob(JobConfigurationQuery query)
       throws IOException, InterruptedException {
     List<TableRow> rows = FakeBigQueryServices.rowsFromEncodedQuery(query.getQuery());
-    datasetService.createTable(new Table().setTableReference(query.getDestinationTable()));
+    datasetService.createTable(
+        new Table().setTableReference(query.getDestinationTable()).setSchema(new TableSchema()));
     datasetService.insertAll(query.getDestinationTable(), rows, null);
     return new JobStatus().setState("DONE");
   }

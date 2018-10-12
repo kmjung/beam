@@ -28,6 +28,7 @@ import com.google.api.client.util.ExponentialBackOff;
 import com.google.api.client.util.Sleeper;
 import com.google.api.gax.core.FixedCredentialsProvider;
 import com.google.api.services.bigquery.Bigquery;
+import com.google.api.services.bigquery.Bigquery.Tables;
 import com.google.api.services.bigquery.model.Dataset;
 import com.google.api.services.bigquery.model.DatasetReference;
 import com.google.api.services.bigquery.model.Job;
@@ -431,16 +432,36 @@ class BigQueryServicesImpl implements BigQueryServices {
     @Override
     @Nullable
     public Table getTable(TableReference tableRef) throws IOException, InterruptedException {
-      return getTable(tableRef, createDefaultBackoff(), Sleeper.DEFAULT);
+      return getTable(tableRef, null);
+    }
+
+    /**
+     * @{inheritDoc}
+     *
+     * <p>Tries executing the RPC for at most {@code MAX_RPC_RETRIES} times until it succeeds.
+     *
+     * @throws IOException if it exceeds {@code MAX_RPC_RETRIES} attempts.
+     */
+    @Override
+    @Nullable
+    public Table getTable(TableReference tableRef, @Nullable List<String> selectedFields)
+        throws IOException, InterruptedException {
+      return getTable(tableRef, selectedFields, createDefaultBackoff(), Sleeper.DEFAULT);
     }
 
     @VisibleForTesting
     @Nullable
-    Table getTable(TableReference ref, BackOff backoff, Sleeper sleeper)
+    Table getTable(
+        TableReference ref, @Nullable List<String> selectedFields, BackOff backoff, Sleeper sleeper)
         throws IOException, InterruptedException {
+      Tables.Get get =
+          client.tables().get(ref.getProjectId(), ref.getDatasetId(), ref.getTableId());
+      if (selectedFields != null && !selectedFields.isEmpty()) {
+        get.setSelectedFields(String.join(",", selectedFields));
+      }
       try {
         return executeWithRetries(
-            client.tables().get(ref.getProjectId(), ref.getDatasetId(), ref.getTableId()),
+            get,
             String.format(
                 "Unable to get table: %s, aborting after %d retries.",
                 ref.getTableId(), MAX_RPC_RETRIES),

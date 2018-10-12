@@ -19,11 +19,11 @@ package org.apache.beam.examples;
 
 import com.google.common.collect.Lists;
 import java.io.Serializable;
-import org.apache.beam.examples.BigQueryWordCount.BigQueryWordCountOptions.ReadMode;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.coders.SerializableCoder;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.ReadSessionOptions;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.TypedRead.Method;
 import org.apache.beam.sdk.io.gcp.bigquery.SchemaAndRecord;
 import org.apache.beam.sdk.io.gcp.bigquery.SchemaAndRowProto;
 import org.apache.beam.sdk.metrics.Counter;
@@ -49,43 +49,6 @@ import org.apache.beam.sdk.values.PCollection;
  * for processing, and shows how to build identical pipelines using the new BigQuery parallel read
  * API while optimizing the amount of data to be processed using features of the new API such as
  * column selection and push-down SQL filtering.
- *
- * <p>Example run command with {@link ReadMode#GCS_EXPORT}:
- *
- * <pre>{@code
- * mvn exec:java -Pdataflow-runner
- *               -Dexec.mainClass=org.apache.beam.examples.BigQueryWordCount
- *               -Dexec.args="--runner=DataflowRunner
- *                            --tempLocation='gs://<your GCS bucket>/<path>'
- *                            --project=<your project ID>
- *                            --readMode=GCS_EXPORT
- *                            --gcpTempLocation='gs://<your GCS bucket>/<path>'
- *                            --pipelineType=READ_FULL_ROWS"
- * }</pre>
- *
- * <p>Example run command with {@link ReadMode#READ_FROM_QUERY}:
- *
- * <pre>{@code
- * mvn exec:java -Pdataflow-runner
- *               -Dexec.mainClass=org.apache.beam.examples.BigQueryWordCount
- *               -Dexec.args="--runner=DataflowRunner
- *                            --tempLocation='gs://<your GCS bucket>/<path>'
- *                            --project=<your project ID>
- *                            --readMode=READ_FROM_QUERY
- *                            --pipelineType=READ_FULL_ROWS"
- * }</pre>
- *
- * <p>Example run command with {@link ReadMode#READ_FROM_TABLE}:
- *
- * <pre>{@code
- * mvn exec:java -Pdataflow-runner
- *               -Dexec.mainClass=org.apache.beam.examples.BigQueryWordCount
- *               -Dexec.args="--runner=DataflowRunner
- *                            --tempLocation='gs://<your GCS bucket>/<path>'
- *                            --project=<your project ID>
- *                            --readMode=READ_FROM_TABLE
- *                            --pipelineType=READ_FULL_ROWS"
- * }</pre>
  */
 public class BigQueryWordCount {
 
@@ -94,23 +57,9 @@ public class BigQueryWordCount {
   private static final String CONTRIBUTOR_USERNAME_FIELD_NAME = "contributor_username";
   private static final String CONTRIBUTOR_IP_FIELD_NAME = "contributor_ip";
 
-  private static final String SIMPLE_QUERY_STRING =
-      "#standardSQL\n" + "SELECT * FROM `bigquery-public-data.samples.wikipedia`";
-
-  private static final String PROJECTION_QUERY_STRING =
-      "#standardSQL\n"
-          + "SELECT num_characters, contributor_username, contributor_ip\n"
-          + "FROM `bigquery-public-data.samples.wikipedia`";
-
-  private static final String FILTER_QUERY_STRING =
-      "#standardSQL\n"
-          + "SELECT *\n"
-          + "FROM `bigquery-public-data.samples.wikipedia'\n"
-          + "WHERE num_characters > 5000";
-
   private static final String FILTER_PROJECTION_QUERY_STRING =
       "#standardSQL\n"
-          + "SELECT num_characters, contributor_username, contributor_ip\n"
+          + "SELECT contributor_username, contributor_ip\n"
           + "FROM `bigquery-public-data.samples.wikipedia`\n"
           + "WHERE num_characters > 5000";
 
@@ -211,186 +160,135 @@ public class BigQueryWordCount {
   /** Options supported by {@link BigQueryWordCount}. */
   public interface BigQueryWordCountOptions extends org.apache.beam.sdk.options.PipelineOptions {
 
-    /** Enumeration of different read modes. */
-    enum ReadMode {
-      GCS_EXPORT,
-      READ_FROM_QUERY,
-      READ_FROM_TABLE,
-    }
-
-    @Description("Read mode: GCS_EXPORT, READ_FROM_QUERY, READ_FROM_TABLE")
-    @Required
-    ReadMode getReadMode();
-
-    void setReadMode(ReadMode readMode);
-
-    /** Enumeration of different pipeline types. */
+    /** Enumerates the possible pipeline types supported by this test. */
     enum PipelineType {
-      READ_FULL_ROWS,
-      READ_COLUMNS,
-      READ_FULL_ROWS_AND_FILTER,
-      READ_COLUMNS_AND_FILTER,
+      EXPORT_TABLE_DATA,
+      EXPORT_QUERY_RESULTS,
+      READ_TABLE_DATA,
+      READ_TABLE_DATA_AND_FILTER,
+      READ_QUERY_RESULTS,
+      READ_TABLE_DATA_AS_ROW_PROTO,
+      READ_TABLE_DATA_AS_ROW_PROTO_AND_FILTER,
+      READ_QUERY_RESULTS_AS_ROW_PROTO,
     }
 
     @Description(
-        "Pipeline type: READ_FULL_ROWS, READ_COLUMNS, READ_FULL_ROWS_AND_FILTER, "
-            + "READ_COLUMNS_AND_FILTER")
+        "Pipeline type: "
+            + "EXPORT_TABLE_DATA, "
+            + "EXPORT_QUERY_RESULTS, "
+            + "READ_TABLE_DATA, "
+            + "READ_TABLE_DATA_AND_FILTER, "
+            + "READ_QUERY_RESULTS, "
+            + "READ_TABLE_DATA_AS_ROW_PROTO, "
+            + "READ_TABLE_DATA_AS_ROW_PROTO_AND_FILTER, "
+            + "READ_QUERY_RESULTS_AS_ROW_PROTO")
     @Required
     PipelineType getPipelineType();
 
     void setPipelineType(PipelineType pipelineType);
-
-    /** Set this option to write out the list of authors and edits to a file. */
-    @Description("Path of the file to write to")
-    String getOutputPath();
-
-    void setOutputPath(String outputPath);
   }
 
   static void runBQWordCount(BigQueryWordCountOptions options) {
-    Pipeline pipeline = Pipeline.create(options);
+    Pipeline p = Pipeline.create(options);
     PCollection<TrimmedEditRecord> editRecords;
     switch (options.getPipelineType()) {
-      case READ_FULL_ROWS:
-        if (options.getReadMode() == ReadMode.GCS_EXPORT) {
-          editRecords =
-              pipeline
-                  .apply(
-                      "Extract table to GCS and read rows",
-                      BigQueryIO.read(parseRecordFn)
-                          .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
-                          .from(DEFAULT_TABLE_REFERENCE))
-                  .apply("Filter edits to small articles", ParDo.of(new FilterSmallPagesFn()));
-        } else if (options.getReadMode() == ReadMode.READ_FROM_QUERY) {
-          editRecords =
-              pipeline
-                  .apply(
-                      "Query all rows and read table rows from a temporary table",
-                      BigQueryIO.readViaRowProto(parseRowProtoFn)
-                          .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
-                          .fromQuery(SIMPLE_QUERY_STRING)
-                          .usingStandardSql())
-                  .apply("Filter edits to small articles", ParDo.of(new FilterSmallPagesFn()));
-        } else {
-          editRecords =
-              pipeline
-                  .apply(
-                      "Read table rows from BigQuery storage",
-                      BigQueryIO.readViaRowProto(parseRowProtoFn)
-                          .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
-                          .from(DEFAULT_TABLE_REFERENCE))
-                  .apply("Filter edits to small articles", ParDo.of(new FilterSmallPagesFn()));
-        }
+      case EXPORT_TABLE_DATA:
+        editRecords =
+            p.apply(
+                    "ExtractTableDataAndReadRows",
+                    BigQueryIO.read(parseRecordFn)
+                        .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
+                        .from(DEFAULT_TABLE_REFERENCE))
+                .apply("FilterEditsToSmallArticles", ParDo.of(new FilterSmallPagesFn()));
         break;
-      case READ_COLUMNS:
-        if (options.getReadMode() == ReadMode.GCS_EXPORT) {
-          editRecords =
-              pipeline
-                  .apply(
-                      "Run projection query, export results to GCS, and read rows",
-                      BigQueryIO.read(parseRecordFn)
-                          .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
-                          .fromQuery(PROJECTION_QUERY_STRING)
-                          .usingStandardSql())
-                  .apply("Filter edits to small articles", ParDo.of(new FilterSmallPagesFn()));
-        } else if (options.getReadMode() == ReadMode.READ_FROM_QUERY) {
-          editRecords =
-              pipeline
-                  .apply(
-                      "Run projection query and read table rows from a temporary table",
-                      BigQueryIO.readViaRowProto(parseRowProtoFn)
-                          .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
-                          .fromQuery(PROJECTION_QUERY_STRING)
-                          .usingStandardSql())
-                  .apply("Filter edits to small articles", ParDo.of(new FilterSmallPagesFn()));
-        } else {
-          editRecords =
-              pipeline
-                  .apply(
-                      "Read table rows from BigQuery storage with column selection",
-                      BigQueryIO.readViaRowProto(parseRowProtoFn)
-                          .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
-                          .withReadSessionOptions(
-                              ReadSessionOptions.builder()
-                                  .setSelectedFields(
-                                      Lists.newArrayList(
-                                          CONTRIBUTOR_IP_FIELD_NAME,
-                                          CONTRIBUTOR_USERNAME_FIELD_NAME,
-                                          NUM_CHARACTERS_FIELD_NAME))
-                                  .build())
-                          .from(DEFAULT_TABLE_REFERENCE))
-                  .apply("Filter edits to small articles", ParDo.of(new FilterSmallPagesFn()));
-        }
+      case EXPORT_QUERY_RESULTS:
+        editRecords =
+            p.apply(
+                "ExtractQueryResultsAndReadRows",
+                BigQueryIO.read(parseRecordFn)
+                    .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
+                    .fromQuery(FILTER_PROJECTION_QUERY_STRING)
+                    .usingStandardSql());
         break;
-      case READ_FULL_ROWS_AND_FILTER:
-        if (options.getReadMode() == ReadMode.GCS_EXPORT) {
-          editRecords =
-              pipeline.apply(
-                  "Run filtering query, export results to GCS, and read rows",
-                  BigQueryIO.read(parseRecordFn)
-                      .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
-                      .fromQuery(FILTER_QUERY_STRING)
-                      .usingStandardSql());
-        } else if (options.getReadMode() == ReadMode.READ_FROM_QUERY) {
-          editRecords =
-              pipeline.apply(
-                  "Run filtering query and read rows from a temporary table",
-                  BigQueryIO.readViaRowProto(parseRowProtoFn)
-                      .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
-                      .fromQuery(FILTER_QUERY_STRING)
-                      .usingStandardSql());
-        } else {
-          editRecords =
-              pipeline.apply(
-                  "Read table rows from BigQuery storage with push-down filtering",
-                  BigQueryIO.readViaRowProto(parseRowProtoFn)
-                      .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
-                      .withReadSessionOptions(
-                          ReadSessionOptions.builder()
-                              .setSqlFilter(NUM_CHARACTERS_FIELD_NAME + " > 5000")
-                              .build())
-                      .from(DEFAULT_TABLE_REFERENCE));
-        }
+      case READ_TABLE_DATA:
+        editRecords =
+            p.apply(
+                    "ReadTableData",
+                    BigQueryIO.read(parseRecordFn)
+                        .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
+                        .withMethod(Method.READ)
+                        .from(DEFAULT_TABLE_REFERENCE))
+                .apply("FilterEditsToSmallArticles", ParDo.of(new FilterSmallPagesFn()));
         break;
-      case READ_COLUMNS_AND_FILTER:
-        if (options.getReadMode() == ReadMode.GCS_EXPORT) {
-          editRecords =
-              pipeline.apply(
-                  "Run filter projection query, export results to GCS, and read rows",
-                  BigQueryIO.read(parseRecordFn)
-                      .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
-                      .fromQuery(FILTER_PROJECTION_QUERY_STRING)
-                      .usingStandardSql()
-                      .withTemplateCompatibility());
-        } else if (options.getReadMode() == ReadMode.READ_FROM_QUERY) {
-          editRecords =
-              pipeline.apply(
-                  "Run filter projection query and read table rows from a temporary table",
-                  BigQueryIO.readViaRowProto(parseRowProtoFn)
-                      .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
-                      .fromQuery(FILTER_PROJECTION_QUERY_STRING)
-                      .usingStandardSql());
-        } else {
-          editRecords =
-              pipeline.apply(
-                  "Read table rows from BigQuery storage with column selection and filtering",
-                  BigQueryIO.readViaRowProto(parseRowProtoFn)
-                      .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
-                      .withReadSessionOptions(
-                          ReadSessionOptions.builder()
-                              .setSqlFilter(NUM_CHARACTERS_FIELD_NAME + " > 5000")
-                              .setSelectedFields(
-                                  Lists.newArrayList(
-                                      CONTRIBUTOR_IP_FIELD_NAME,
-                                      CONTRIBUTOR_USERNAME_FIELD_NAME,
-                                      NUM_CHARACTERS_FIELD_NAME))
-                              .build())
-                      .from(DEFAULT_TABLE_REFERENCE));
-        }
+      case READ_TABLE_DATA_AND_FILTER:
+        editRecords =
+            p.apply(
+                "ReadTableDataAndFilter",
+                BigQueryIO.read(parseRecordFn)
+                    .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
+                    .withMethod(Method.READ)
+                    .withReadSessionOptions(
+                        ReadSessionOptions.builder()
+                            .setSqlFilter(NUM_CHARACTERS_FIELD_NAME + " > 5000")
+                            .setSelectedFields(
+                                Lists.newArrayList(
+                                    NUM_CHARACTERS_FIELD_NAME,
+                                    CONTRIBUTOR_USERNAME_FIELD_NAME,
+                                    CONTRIBUTOR_IP_FIELD_NAME))
+                            .build())
+                    .from(DEFAULT_TABLE_REFERENCE));
+        break;
+      case READ_QUERY_RESULTS:
+        editRecords =
+            p.apply(
+                "ReadQueryResults",
+                BigQueryIO.read(parseRecordFn)
+                    .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
+                    .withMethod(Method.READ)
+                    .fromQuery(FILTER_PROJECTION_QUERY_STRING)
+                    .usingStandardSql());
+        break;
+      case READ_TABLE_DATA_AS_ROW_PROTO:
+        editRecords =
+            p.apply(
+                    "ReadTableDataAsRowProto",
+                    BigQueryIO.readViaRowProto(parseRowProtoFn)
+                        .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
+                        .from(DEFAULT_TABLE_REFERENCE))
+                .apply("FilterEditsToSmallArticles", ParDo.of(new FilterSmallPagesFn()));
+        break;
+      case READ_TABLE_DATA_AS_ROW_PROTO_AND_FILTER:
+        editRecords =
+            p.apply(
+                "ReadTableDataAsRowProtoAndFilter",
+                BigQueryIO.readViaRowProto(parseRowProtoFn)
+                    .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
+                    .withReadSessionOptions(
+                        ReadSessionOptions.builder()
+                            .setSqlFilter(NUM_CHARACTERS_FIELD_NAME + " > 5000")
+                            .setSelectedFields(
+                                Lists.newArrayList(
+                                    NUM_CHARACTERS_FIELD_NAME,
+                                    CONTRIBUTOR_USERNAME_FIELD_NAME,
+                                    CONTRIBUTOR_IP_FIELD_NAME))
+                            .build())
+                    .from(DEFAULT_TABLE_REFERENCE));
+        break;
+      case READ_QUERY_RESULTS_AS_ROW_PROTO:
+        editRecords =
+            p.apply(
+                "ReadQueryResultsAsRowProto",
+                BigQueryIO.readViaRowProto(parseRowProtoFn)
+                    .withCoder(SerializableCoder.of(TrimmedEditRecord.class))
+                    .fromQuery(FILTER_PROJECTION_QUERY_STRING)
+                    .usingStandardSql());
         break;
       default:
-        throw new IllegalStateException("Unknown pipeline type: " + options.getPipelineType());
+        throw new IllegalArgumentException("Unknown pipeline type: " + options.getPipelineType());
     }
+
+    // Verify that the expected number of edit records were read.
+    PAssert.thatSingleton(editRecords.apply("CountEdits", Count.globally())).isEqualTo(168939084L);
 
     PCollection<KV<String, Long>> editsPerAuthor =
         editRecords
@@ -400,9 +298,10 @@ public class BigQueryWordCount {
             .apply("Count edits per user", Count.perElement());
 
     // Verify that the expected number of edit authors were found.
-    PAssert.thatSingleton(editsPerAuthor.apply(Count.globally())).isEqualTo(16725243L);
+    PAssert.thatSingleton("CountEditors", editsPerAuthor.apply(Count.globally()))
+        .isEqualTo(16725243L);
 
-    pipeline.run().waitUntilFinish();
+    p.run().waitUntilFinish();
   }
 
   public static void main(String[] args) {
