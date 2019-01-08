@@ -62,6 +62,7 @@ public class GcpApiSurfaceTest {
             classesInPackage("com.google.api.services.bigquery.model"),
             classesInPackage("com.google.auth"),
             classesInPackage("com.google.bigtable.v2"),
+            classesInPackage("com.google.cloud.bigquery.storage.v1beta1"),
             classesInPackage("com.google.cloud.bigtable.config"),
             classesInPackage("com.google.spanner.v1"),
             Matchers.equalTo(com.google.api.gax.rpc.ApiException.class),
