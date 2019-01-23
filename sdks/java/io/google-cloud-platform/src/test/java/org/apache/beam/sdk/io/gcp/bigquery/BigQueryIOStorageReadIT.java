@@ -31,15 +31,16 @@ import org.apache.beam.sdk.testing.PAssert;
 import org.apache.beam.sdk.testing.TestPipeline;
 import org.apache.beam.sdk.testing.TestPipelineOptions;
 import org.apache.beam.sdk.transforms.Count;
+import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.apache.beam.sdk.values.PCollection;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
 /**
- * Integration tests for {@link BigQueryIO#readTableRows()} using {@link Method#DIRECT_READ}. This
- * test reads from a specified table and asserts that the number of records read is equal to the
- * expected count.
+ * Integration tests for {@link BigQueryIO#read(SerializableFunction)} using {@link
+ * Method#DIRECT_READ}. This test reads from a pre-defined table and asserts that the number of
+ * records read is equal to the expected count.
  */
 @RunWith(JUnit4.class)
 public class BigQueryIOStorageReadIT {
